@@ -113,7 +113,7 @@ if ticket_id:
                         worksheet.update_cell(row_index, 11, "Approved - " + str(doc_link)) 
                         trigger_pdffiller_automation(doc_link, vl_name, vl_email)
                         
-                        recipients = [vl_email, "bansh@vahan.co", "saurabh.dubey@vahan.co"]
+                        recipients = [vl_email, "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
                         email_body = f"""
                         <h3>Document Approved & Sent for Signature</h3>
                         <p>The document for <b>{vl_name}</b> has been approved by Bansh.</p>
@@ -135,7 +135,7 @@ if ticket_id:
                         else:
                             worksheet.update_cell(row_index, 11, "Rejected: " + comments) 
                             
-                            all_recipients = [vl_email, "bansh@vahan.co", "saurabh.dubey@vahan.co"]
+                            all_recipients = [vl_email, "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
                             if extra_emails:
                                 all_recipients.extend([e.strip() for e in extra_emails.split(",") if e.strip()])
 
@@ -203,7 +203,7 @@ else:
                     <p><b>Applicant:</b> {vl_name} ({vl_email})</p>
                     <p><a href="{approval_link}">Click here to Review and Approve/Reject</a></p>
                     """
-                    send_email("bansh@vahan.co", f"New Approval Needed: {vl_name}", email_body)
+                    send_email("nikhil.r@vahan.co", f"New Approval Needed: {vl_name}", email_body)
                     
                     st.success(f"Form submitted successfully! Your Ticket ID is {new_ticket_id}.")
                     st.balloons()
