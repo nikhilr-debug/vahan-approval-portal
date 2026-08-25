@@ -15,7 +15,6 @@ st.set_page_config(page_title="Vahan Document Portal", layout="centered", page_i
 # ==========================================
 @st.cache_resource
 def get_google_sheet():
-    # Authenticate using Streamlit Secrets
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     # Replace with your actual Google Sheet URL
     sheet_url = "https://docs.google.com/spreadsheets/d/19xDCZHGieGvQ0dYYyarspO-vRUFRFaDUyvyNtLJv9kc/edit"
@@ -31,7 +30,6 @@ except Exception as e:
 # HELPER: EMAIL SENDER
 # ==========================================
 def send_email(to_emails, subject, body):
-    # Configure your sender email and App Password here
     sender_email = "YOUR_SENDER_EMAIL@vahan.co" 
     sender_password = "YOUR_GMAIL_APP_PASSWORD" 
     
@@ -39,7 +37,6 @@ def send_email(to_emails, subject, body):
     msg["Subject"] = subject
     msg["From"] = sender_email
     
-    # Handle single string or list of emails
     if isinstance(to_emails, list):
         msg["To"] = ", ".join(to_emails)
     else:
@@ -54,21 +51,13 @@ def send_email(to_emails, subject, body):
         st.error(f"Failed to send email: {e}")
         return False
 
-# ==========================================
-# HELPER: PLAYWRIGHT (MOCK / PLACEHOLDER)
-# ==========================================
-# Note: Running actual Playwright inside Streamlit Community Cloud requires custom Docker setup.
-# In a standard Streamlit Cloud deployment, you can trigger an external webhook here, 
-# or host this app on Render.com to run the Playwright python code directly.
 def trigger_pdffiller_automation(doc_url, vl_name, vl_email):
     st.info("System is triggering pdfFiller automation in the background...")
-    # Your playwright script logic goes here (from the previous code provided)
     return True
 
 # ==========================================
 # ROUTING: CHECK FOR APPROVAL TICKET
 # ==========================================
-# Use Streamlit's query params to see if Bansh clicked a link (e.g., ?ticket_id=TK-1234)
 query_params = st.query_params
 ticket_id = query_params.get("ticket_id")
 
@@ -79,26 +68,25 @@ if ticket_id:
     st.title("📋 Document Approval Request")
     st.info(f"Reviewing Request ID: **{ticket_id}**")
 
-    # Fetch all records to find the specific ticket
     records = worksheet.get_all_records()
     
-    # Find the row matching the ticket ID
     target_row_data = None
     row_index = 2 # Starts at 2 because row 1 is headers
     
     for record in records:
+        # Looking for Ticket ID in Column 12 (L)
         if str(record.get("Ticket ID", "")) == str(ticket_id):
             target_row_data = record
             break
         row_index += 1
 
     if not target_row_data:
-        st.error("Ticket ID not found. It may have been deleted or doesn't exist.")
+        st.error("Ticket ID not found. Ensure you have a 'Ticket ID' header in Column L of your sheet.")
     else:
-        vl_name = target_row_data.get("VL Name", "Unknown")
+        vl_name = target_row_data.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", "Unknown")
         vl_email = target_row_data.get("VL Mail ID", "Unknown")
-        current_status = target_row_data.get("Status", "Pending")
-        doc_link = target_row_data.get("Document Link", "Not Generated Yet") # Assuming Column K is named "Document Link"
+        current_status = target_row_data.get("Document Status", "Pending")
+        doc_link = target_row_data.get("Document Status", "") # Link is generated in this same column
 
         col1, col2 = st.columns(2)
         with col1:
@@ -113,20 +101,18 @@ if ticket_id:
 
         with col2:
             st.subheader("Action Required")
-            if current_status == "Approved":
+            if "http" not in str(doc_link) and "Error" not in str(doc_link):
+                 st.info("Waiting for Google Apps Script to finish generating the document...")
+            elif "Approved" in current_status:
                 st.success("This document has already been approved.")
             else:
                 action = st.radio("Choose Action:", ["Approve", "Send Back to Requester"])
 
                 if action == "Approve":
                     if st.button("Confirm Approval", type="primary"):
-                        # 1. Update Sheet Status
-                        worksheet.update_cell(row_index, 11, "Approved") # Assuming Status is Column K (11)
-                        
-                        # 2. Trigger Playwright automation for pdfFiller
+                        worksheet.update_cell(row_index, 11, "Approved - " + str(doc_link)) 
                         trigger_pdffiller_automation(doc_link, vl_name, vl_email)
                         
-                        # 3. Send Emails
                         recipients = [vl_email, "bansh@vahan.co", "saurabh.dubey@vahan.co"]
                         email_body = f"""
                         <h3>Document Approved & Sent for Signature</h3>
@@ -147,16 +133,12 @@ if ticket_id:
                         if not comments:
                             st.error("Please add comments explaining why the document is sent back.")
                         else:
-                            # 1. Update Sheet Status and Comments
-                            worksheet.update_cell(row_index, 11, "Rejected") # Status col
-                            worksheet.update_cell(row_index, 12, comments)   # Assuming Column L (12) is Comments
+                            worksheet.update_cell(row_index, 11, "Rejected: " + comments) 
                             
-                            # 2. Parse emails
                             all_recipients = [vl_email, "bansh@vahan.co", "saurabh.dubey@vahan.co"]
                             if extra_emails:
                                 all_recipients.extend([e.strip() for e in extra_emails.split(",") if e.strip()])
 
-                            # 3. Send Email
                             email_body = f"""
                             <h3>Document Requires Revision</h3>
                             <p><b>Approver Comments:</b> {comments}</p>
@@ -173,44 +155,47 @@ else:
     st.write("Please fill in the details below to generate your official agreement.")
 
     with st.form("user_request_form"):
-        vl_name = st.text_input("VL Name (Owner Name if Non-GST): *")
+        # Match all columns from the Google Sheet
+        vl_name = st.text_input("VL Name (Mention Owner name if Non-GST): *")
         registered_address = st.text_area("Registered Address: *")
-        gst_number = st.text_input("GST Number (Enter 'N/A' if Non-GST): *")
-        vl_age = st.text_input("VL Age (Required if Non-GST):")
+        gst_number = st.text_input("GST number (Leave blank if non-GST):")
+        pan_details = st.text_input("PAN details:")
+        ops_address = st.text_area("Address of operations:")
+        tc_count = st.text_input("No. Of TCs VL is deploying:")
+        current_business = st.text_input("Current business:")
+        vl_age = st.text_input("VL Age (If non GST mention owner age):")
         vl_email = st.text_input("VL Mail ID: *")
         
         submitted = st.form_submit_button("Submit Request")
 
         if submitted:
-            if not vl_name or not registered_address or not gst_number or not vl_email:
+            if not vl_name or not registered_address or not vl_email:
                 st.error("Please complete all required fields (*).")
             else:
                 try:
-                    # Generate a unique Ticket ID (e.g., TK-A1B2)
                     new_ticket_id = "TK-" + str(uuid.uuid4()).split('-')[0].upper()
-                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                    # Structure the row data based on your Google Sheet columns.
-                    # IMPORTANT: Adjust this list so the data falls exactly into the right columns!
-                    # For this example: 
-                    # Col A: Ticket ID, Col B: Timestamp, Col C: VL Name, Col D: Address, Col E: GST, Col F-H: Blank, Col I: Age, Col J: Email, Col K: Status
+                    # EXACT MATCH TO YOUR COLUMNS (1 to 12)
                     new_row = [
-                        new_ticket_id,       # A
-                        current_time,        # B
-                        vl_name,             # C
-                        registered_address,  # D
-                        gst_number,          # E
-                        "", "", "",          # F, G, H
-                        vl_age,              # I
-                        vl_email,            # J
-                        "Pending"            # K
+                        current_time,          # Column 1: Timestamp
+                        vl_name,               # Column 2: VL Name
+                        registered_address,    # Column 3: Registered Address
+                        gst_number,            # Column 4: GST number
+                        pan_details,           # Column 5: PAN details
+                        ops_address,           # Column 6: Address of operations
+                        tc_count,              # Column 7: No. Of TCs
+                        current_business,      # Column 8: Current business
+                        vl_age,                # Column 9: VL Age
+                        vl_email,              # Column 10: VL Mail ID
+                        "Pending Approval",    # Column 11: Document Status (Apps Script reads/writes this)
+                        new_ticket_id          # Column 12: Ticket ID (For Streamlit Routing)
                     ]
                     
                     worksheet.append_row(new_row)
                     
                     # Send Approval Email to Bansh
-                    # (In production, replace with your live app URL)
-                    app_url = "https://your-app-name.streamlit.app"
+                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" # UPDATE THIS ONCE DEPLOYED
                     approval_link = f"{app_url}/?ticket_id={new_ticket_id}"
                     email_body = f"""
                     <h3>New Agreement Approval Request</h3>
@@ -219,7 +204,7 @@ else:
                     """
                     send_email("bansh@vahan.co", f"New Approval Needed: {vl_name}", email_body)
                     
-                    st.success(f"Form submitted successfully! Your Ticket ID is {new_ticket_id}. Document generation initiated.")
+                    st.success(f"Form submitted successfully! Your Ticket ID is {new_ticket_id}.")
                     st.balloons()
                 except Exception as err:
                     st.error(f"Error saving to Google Sheets: {err}")
