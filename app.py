@@ -1,3 +1,9 @@
+try:
+    worksheet = get_google_sheet()
+except Exception as e:
+    st.error(f"Failed to connect to Google Sheets. Exact Error: {e}")
+    st.stop()
+
 import streamlit as st
 import gspread
 import smtplib
