@@ -197,7 +197,7 @@ else:
                     
                     # Send Approval Email to Bansh
                     # IMPORTANT: Update this URL once your app is live!
-                    app_url = "https://your-app-name.streamlit.app" 
+                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
                     approval_link = f"{app_url}/?ticket_id={new_ticket_id}"
                     email_body = f"""
                     <h3>New Agreement Approval Request</h3>
