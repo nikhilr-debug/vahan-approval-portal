@@ -10,7 +10,6 @@ import json
 import base64
 import io
 from PIL import Image
-import streamlit.components.v1 as components
 from streamlit_oauth import OAuth2Component
 
 # ==========================================
@@ -121,6 +120,16 @@ def get_status_badge(status_text):
     elif "Rejected" in status_text: return f"<div class='badge badge-rejected'>❌ {status_text}</div>"
     else: return f"<div class='badge badge-pending'>⏳ {status_text}</div>"
 
+def render_field(label, value):
+    """Safely renders fields for the UI dashboard."""
+    safe_value = str(value).strip() if str(value).strip() else "—"
+    st.markdown(f"<div><div class='field-label'>{label}</div><div class='field-value'>{safe_value}</div></div>", unsafe_allow_html=True)
+
+def render_pdf_iframe(url, height=600):
+    """Replaces deprecated st.components.v1.iframe with a native HTML iframe."""
+    st.markdown(f'<iframe src="{url}" width="100%" height="{height}px" style="border: none; border-radius: 8px;"></iframe>', unsafe_allow_html=True)
+
+
 # ==========================================
 # OAUTH 2.0 LOGIN SYSTEM
 # ==========================================
@@ -157,7 +166,7 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
     is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
@@ -216,7 +225,7 @@ else:
                 # NATIVE PDF EMBEDDING
                 st.info("📄 Please review the document before signing.")
                 with st.expander("🔍 Click to Expand & Review Agreement"):
-                    components.iframe(preview_link, height=600, scrolling=True)
+                    render_pdf_iframe(preview_link, height=600)
                 st.divider()
 
                 # --- SAURABH SIGNING ---
@@ -252,7 +261,6 @@ else:
                                 worksheet.update_cell(row_index, 23, saurabh_payload) 
                                 worksheet.update_cell(row_index, 24, stamp_payload) 
                                 
-                                # Check if VL also signed
                                 if bool(target_row_data.get("VL Signature", "").strip()):
                                     worksheet.update_cell(row_index, 19, "Signatures Submitted")
                                     history.append({"time": current_time, "title": "⏳ Processing", "details": "Signatures captured. Modifying document."})
@@ -296,7 +304,6 @@ else:
                                 worksheet.update_cell(row_index, 21, sig_name)
                                 worksheet.update_cell(row_index, 22, sig_desig)
                                 
-                                # Check if Saurabh signed
                                 if bool(target_row_data.get("Saurabh Signature", "").strip()):
                                     worksheet.update_cell(row_index, 19, "Signatures Submitted")
                                     history.append({"time": current_time, "title": "⏳ Processing", "details": "Signatures captured. Modifying document."})
@@ -332,10 +339,10 @@ else:
                         if "Fully Executed" in current_status or "Executing" in current_status:
                             st.success(f"🎉 **Agreement Executed!**")
                             with st.expander("🔍 Click to Expand Final PDF"):
-                                components.iframe(preview_link, height=600, scrolling=True)
+                                render_pdf_iframe(preview_link, height=600)
                         elif "http" in doc_link: 
                             with st.expander("🔍 Click to Review Draft"):
-                                components.iframe(preview_link, height=600, scrolling=True)
+                                render_pdf_iframe(preview_link, height=600)
                             
                         c1_inner, c2_inner = st.columns(2)
                         with c1_inner:
@@ -371,7 +378,7 @@ else:
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     email_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
                                     
-                                    success, err = send_email(["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
+                                    success, err = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
                                     if success:
                                         log_email_to_history(row_index, history, "E-Sign links dispatched.")
                                         st.success("Approved! Links dispatched.")
@@ -390,7 +397,7 @@ else:
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     
                                     email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p>"
-                                    send_email(["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
+                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     st.success("Rejection logged.")
                                     if url_ticket_id: st.query_params.clear()
@@ -456,7 +463,6 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}. Awaiting document generation."}]
 
-                    # Expand to 24 columns for signature image tracking
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
@@ -478,6 +484,30 @@ else:
     elif page == "✍️ E-Sign Portal":
         st.markdown("## ✍️ E-Sign Portal")
         st.info("Select an agreement from the dropdown below to review and sign.")
+        
+        records = worksheet.get_all_records()
+        latest_records_map = {str(r.get("Ticket ID", "")): r for r in records if str(r.get("Ticket ID", ""))}
+            
+        tickets_to_sign = []
+        for r in latest_records_map.values():
+            status, doc_link = get_status_and_link(r)
+            if status == "Approved": 
+                if is_saurabh and not r.get("Saurabh Signature", ""):
+                    tickets_to_sign.append(r)
+                elif user_email.lower() == str(r.get("VL Mail ID", "")).lower() and not r.get("VL Signature", ""):
+                    tickets_to_sign.append(r)
+                    
+        if not tickets_to_sign:
+            pass # Keep it clean since we have an info banner above
+        else:
+            ticket_options = [f"{r['Ticket ID']} — {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']}" for r in tickets_to_sign]
+            selected_option = st.selectbox("Select an agreement to sign:", ticket_options)
+            
+            if selected_option:
+                selected_id = selected_option.split(" — ")[0]
+                # Redirect them cleanly to the URL router view for full signing UI
+                st.query_params["ticket_id"] = selected_id
+                st.rerun()
 
     # ------------------------------------------
     # VIEW 4: TICKET DASHBOARD (REPOSITORY)
@@ -528,10 +558,10 @@ else:
                     if "Fully Executed" in status or "Executing" in status:
                         st.success("📜 **Agreement Executed!**")
                         with st.expander("🔍 Click to Expand Final PDF", expanded=True):
-                            components.iframe(preview_link, height=800, scrolling=True)
+                            render_pdf_iframe(preview_link, height=800)
                     elif "http" in doc_link:
                         with st.expander("🔍 Click to Review Draft"):
-                            components.iframe(preview_link, height=600, scrolling=True)
+                            render_pdf_iframe(preview_link, height=600)
                         
                     st.write("")
                     tab1, tab2 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline"])
