@@ -28,16 +28,11 @@ def apply_custom_css():
         .stTextInput>div>div>input { border-radius: 6px; }
         .stTextArea>div>div>textarea { border-radius: 6px; }
         
-        /* Cursive Signature Font */
         .signature-font {
             font-family: 'Brush Script MT', 'Bradley Hand', cursive;
-            font-size: 42px;
-            color: #000080;
-            padding: 10px;
-            border-bottom: 2px solid #ccc;
-            display: inline-block;
-            min-width: 300px;
-            background-color: #f9f9f9;
+            font-size: 42px; color: #000080; padding: 10px;
+            border-bottom: 2px solid #ccc; display: inline-block;
+            min-width: 300px; background-color: #f9f9f9;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -60,29 +55,28 @@ except Exception as e:
     st.stop()
 
 def send_email(to_emails, subject, body):
-    sender_email = st.secrets["emails"]["sender_email"]
-    sender_password = st.secrets["emails"]["sender_password"]
-    
-    msg = MIMEText(body, "html")
-    msg["Subject"] = subject
-    msg["From"] = f"Vahan Ticketing <{sender_email}>"
-    
-    if isinstance(to_emails, list):
-        to_emails = list(set([email.strip() for email in to_emails if email]))
-        msg["To"] = ", ".join(to_emails)
-    else:
-        msg["To"] = to_emails
-
     try:
+        sender_email = st.secrets["emails"]["sender_email"]
+        sender_password = st.secrets["emails"]["sender_password"]
+        
+        msg = MIMEText(body, "html")
+        msg["Subject"] = subject
+        msg["From"] = f"Vahan Ticketing <{sender_email}>"
+        
+        if isinstance(to_emails, list):
+            to_emails = list(set([email.strip() for email in to_emails if email]))
+            msg["To"] = ", ".join(to_emails)
+        else:
+            msg["To"] = to_emails
+
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_emails, msg.as_string())
-        return True
+        return True, "Success"
     except Exception as e:
-        return False
+        return False, str(e)  # We will now print this exact error!
 
 def get_pdf_link(doc_link):
-    """Converts a standard Google Doc URL into a direct PDF download link"""
     if "/edit" in doc_link:
         return doc_link.split("/edit")[0] + "/export?format=pdf"
     return doc_link
@@ -107,7 +101,6 @@ def get_status_and_link(record):
         elif raw_col_k.startswith("Approved - "): status = "Approved"
         else: status = raw_col_k
             
-    # Check if Fully Executed
     if status == "Approved" and vl_sig and saurabh_sig:
         status = "Fully Executed"
         
@@ -248,13 +241,15 @@ else:
                                     vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
                                     vl_email = target_row_data.get("VL Mail ID", "")
                                     
-                                    # Send email directing them to the E-Sign Portal
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     email_body = f"<h3>Document Approved & Ready for Signature</h3><p>The document for <b>{vl_name}</b> has been approved.</p><p>Please log in to the <a href='{app_url}'>Vahan Portal</a> and go to the <b>E-Sign Portal</b> tab to digitally sign the agreement.</p>"
-                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
                                     
-                                    st.success("Approved! Directed to E-Sign Portal.")
-                                    st.rerun()
+                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
+                                    if success:
+                                        st.success("Approved! Directed to E-Sign Portal.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"🚨 Email Failed! Error: {err_msg}")
                                     
                             elif action == "❌ Request Revisions":
                                 comments = st.text_area("Reason for rejection:")
@@ -263,8 +258,15 @@ else:
                                     history.append({"time": current_time, "title": "❌ Rejected", "details": f"Rejected by {user_email}. Reason: {comments}"})
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
-                                    st.success("Rejection logged.")
-                                    st.rerun()
+                                    
+                                    vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
+                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
+                                    
+                                    if success:
+                                        st.success("Rejection logged.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"🚨 Email Failed! Error: {err_msg}")
 
     # ------------------------------------------
     # VIEW 2: SUBMIT NEW REQUEST
@@ -309,15 +311,27 @@ else:
                         planned_fts, user_email, zm_email, json.dumps(history_log), 
                         "Pending Approval", "", "" 
                     ]
-                    worksheet.append_row(new_row)
-                    st.success(f"🎉 Ticket **{new_ticket_id}** created successfully!")
+                    
+                    try:
+                        # USING INSERT_ROW AT INDEX 2 - Guaranteed NO overwriting!
+                        worksheet.insert_row(new_row, index=2)
+                        
+                        app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
+                        success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{app_url}/?ticket_id={new_ticket_id}'>Review Request</a></p>")
+                        
+                        if success:
+                            st.success(f"🎉 Ticket **{new_ticket_id}** created successfully! Check your email.")
+                            st.balloons()
+                        else:
+                            st.error(f"🚨 TICKETING SUCCESSFUL, BUT EMAIL FAILED! \n\n**Google Error details:** {err_msg}")
+                    except Exception as err:
+                        st.error(f"Database error: {err}")
 
     # ------------------------------------------
-    # VIEW 3: E-SIGN PORTAL (NEW!)
+    # VIEW 3: E-SIGN PORTAL
     # ------------------------------------------
     elif page == "✍️ E-Sign Portal":
         st.markdown("## ✍️ E-Sign Portal")
-        st.write("Review and digitally sign approved agreements here.")
         
         records = worksheet.get_all_records()
         
@@ -352,7 +366,6 @@ else:
                 st.info(f"📄 Please review the finalized agreement here before signing: [View Document]({doc_link})")
                 st.divider()
                 
-                # --- SAURABH'S SIGNING PANEL ---
                 if is_saurabh:
                     st.markdown("#### Apply Authorized Signature & Company Stamp")
                     with st.container(border=True):
@@ -361,10 +374,7 @@ else:
                             st.write("Signature Preview:")
                             st.markdown(f"<div class='signature-font'>{sig_name}</div>", unsafe_allow_html=True)
                             
-                        st.write("")
                         stamp_file = st.file_uploader("Upload Company Stamp Image (PNG/JPG)", type=["png", "jpg", "jpeg"])
-                        
-                        st.write("")
                         agree = st.checkbox("I, Saurabh Dubey, hereby digitally sign and apply the company stamp to this agreement.")
                         
                         if st.button("Apply Stamp & Sign", type="primary", use_container_width=True):
@@ -380,7 +390,6 @@ else:
                                 
                                 worksheet.update_cell(row_index, 21, sig_log) 
                                 
-                                # CHECK IF THIS COMPLETES THE EXECUTION
                                 vl_already_signed = bool(record.get("VL Signature", "").strip())
                                 if vl_already_signed:
                                     pdf_link = get_pdf_link(doc_link)
@@ -393,7 +402,6 @@ else:
                                 st.balloons()
                                 st.rerun()
                                 
-                # --- VL'S SIGNING PANEL ---
                 else:
                     st.markdown("#### Digital Signature Consent")
                     with st.container(border=True):
@@ -411,7 +419,6 @@ else:
                                 
                                 worksheet.update_cell(row_index, 20, sig_log) 
                                 
-                                # CHECK IF THIS COMPLETES THE EXECUTION
                                 saurabh_already_signed = bool(record.get("Saurabh Signature", "").strip())
                                 if saurabh_already_signed:
                                     pdf_link = get_pdf_link(doc_link)
@@ -485,7 +492,6 @@ else:
                     st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
                     
-                    # Display appropriate document link based on execution status
                     if status == "Fully Executed":
                         st.success(f"📜 **Fully Executed Agreement:**\n\n[📥 Click to Download Final PDF]({get_pdf_link(doc_link)})")
                     elif "http" in doc_link:
