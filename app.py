@@ -81,6 +81,12 @@ def send_email(to_emails, subject, body):
     except Exception as e:
         return False
 
+def get_pdf_link(doc_link):
+    """Converts a standard Google Doc URL into a direct PDF download link"""
+    if "/edit" in doc_link:
+        return doc_link.split("/edit")[0] + "/export?format=pdf"
+    return doc_link
+
 def render_field(label, value):
     safe_value = str(value).strip() if str(value).strip() else "—"
     st.markdown(f"<div><div class='field-label'>{label}</div><div class='field-value'>{safe_value}</div></div>", unsafe_allow_html=True)
@@ -151,9 +157,9 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
+    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
 
     st.sidebar.title("🎫 Vahan Tickets")
     st.sidebar.markdown(f"👤 **User:** `{user_email}`\n🛡️ **Role:** `{'Admin' if is_admin else 'Standard User'}`")
@@ -205,8 +211,12 @@ else:
                 with col1:
                     st.markdown("### 📋 Application Details")
                     with st.container(border=True):
-                        if "http" in doc_link: st.success(f"📄 **Document Generated:** [View Google Doc]({doc_link})")
-                        elif "Rejected" not in current_status: st.info("🔄 Generating document link...")
+                        if current_status == "Fully Executed":
+                            st.success(f"🎉 **Agreement Fully Executed:** [📥 Download Final PDF]({get_pdf_link(doc_link)})")
+                        elif "http" in doc_link: 
+                            st.success(f"📄 **Document Generated (Draft):** [View Google Doc]({doc_link})")
+                        elif "Rejected" not in current_status: 
+                            st.info("🔄 Generating document link...")
                             
                         c1, c2 = st.columns(2)
                         with c1:
@@ -241,7 +251,7 @@ else:
                                     # Send email directing them to the E-Sign Portal
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     email_body = f"<h3>Document Approved & Ready for Signature</h3><p>The document for <b>{vl_name}</b> has been approved.</p><p>Please log in to the <a href='{app_url}'>Vahan Portal</a> and go to the <b>E-Sign Portal</b> tab to digitally sign the agreement.</p>"
-                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
+                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
                                     
                                     st.success("Approved! Directed to E-Sign Portal.")
                                     st.rerun()
@@ -292,13 +302,12 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}."}]
 
-                    # Array now has 21 columns to accommodate the Signature columns
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
                         "Pending Approval", new_ticket_id, tc_count, clients_operated, 
                         planned_fts, user_email, zm_email, json.dumps(history_log), 
-                        "Pending Approval", "", "" # Cols 19, 20 (VL Sig), 21 (Saurabh Sig)
+                        "Pending Approval", "", "" 
                     ]
                     worksheet.append_row(new_row)
                     st.success(f"🎉 Ticket **{new_ticket_id}** created successfully!")
@@ -312,17 +321,15 @@ else:
         
         records = worksheet.get_all_records()
         
-        # Deduplicate & Filter to only Approved tickets
         latest_records_map = {}
         for r in records:
             tid = str(r.get("Ticket ID", ""))
             if tid: latest_records_map[tid] = r
             
-        # Determine which tickets need signing by the current user
         tickets_to_sign = []
         for r in latest_records_map.values():
             status, doc_link = get_status_and_link(r)
-            if status == "Approved": # It's approved but not fully executed yet
+            if status == "Approved": 
                 if is_saurabh and not r.get("Saurabh Signature", ""):
                     tickets_to_sign.append(r)
                 elif user_email.lower() == str(r.get("VL Mail ID", "")).lower() and not r.get("VL Signature", ""):
@@ -339,12 +346,13 @@ else:
                 record = next(r for r in tickets_to_sign if r["Ticket ID"] == selected_id)
                 row_index = records.index(record) + 2
                 _, doc_link = get_status_and_link(record)
+                vl_name = record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
                 
                 st.markdown(f"### Agreement: {selected_id}")
                 st.info(f"📄 Please review the finalized agreement here before signing: [View Document]({doc_link})")
                 st.divider()
                 
-                # --- SAURABH'S EXECUTIVE SIGNING PANEL ---
+                # --- SAURABH'S SIGNING PANEL ---
                 if is_saurabh:
                     st.markdown("#### Apply Authorized Signature & Company Stamp")
                     with st.container(border=True):
@@ -370,18 +378,26 @@ else:
                                 except: history = []
                                 history.append({"time": current_time, "title": "✍️ Signed by Vahan", "details": "Saurabh Dubey applied signature and stamp."})
                                 
-                                worksheet.update_cell(row_index, 21, sig_log) # Update Saurabh Signature Column
-                                worksheet.update_cell(row_index, 18, json.dumps(history))
+                                worksheet.update_cell(row_index, 21, sig_log) 
                                 
-                                st.success("✅ Signature and Stamp successfully applied!")
+                                # CHECK IF THIS COMPLETES THE EXECUTION
+                                vl_already_signed = bool(record.get("VL Signature", "").strip())
+                                if vl_already_signed:
+                                    pdf_link = get_pdf_link(doc_link)
+                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. Final PDF distributed."})
+                                    email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed by all parties.</p><p><a href='{pdf_link}'>📥 Download Final Signed PDF</a></p>"
+                                    send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body)
+                                    
+                                worksheet.update_cell(row_index, 18, json.dumps(history))
+                                st.success("✅ Signature successfully applied!")
                                 st.balloons()
                                 st.rerun()
                                 
-                # --- VL'S STANDARD SIGNING PANEL ---
+                # --- VL'S SIGNING PANEL ---
                 else:
                     st.markdown("#### Digital Signature Consent")
                     with st.container(border=True):
-                        agree = st.checkbox(f"I, acting on behalf of {record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}, have read the agreement and hereby digitally sign it.")
+                        agree = st.checkbox(f"I, acting on behalf of {vl_name}, have read the agreement and hereby digitally sign it.")
                         if st.button("Submit Digital Signature", type="primary", use_container_width=True):
                             if not agree:
                                 st.error("⚠️ You must check the consent box to sign.")
@@ -393,9 +409,17 @@ else:
                                 except: history = []
                                 history.append({"time": current_time, "title": "✍️ Signed by VL", "details": f"Digitally signed by {user_email}."})
                                 
-                                worksheet.update_cell(row_index, 20, sig_log) # Update VL Signature Column
-                                worksheet.update_cell(row_index, 18, json.dumps(history))
+                                worksheet.update_cell(row_index, 20, sig_log) 
                                 
+                                # CHECK IF THIS COMPLETES THE EXECUTION
+                                saurabh_already_signed = bool(record.get("Saurabh Signature", "").strip())
+                                if saurabh_already_signed:
+                                    pdf_link = get_pdf_link(doc_link)
+                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. Final PDF distributed."})
+                                    email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed by all parties.</p><p><a href='{pdf_link}'>📥 Download Final Signed PDF</a></p>"
+                                    send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body)
+
+                                worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Document digitally signed!")
                                 st.balloons()
                                 st.rerun()
@@ -460,10 +484,14 @@ else:
                     status, doc_link = get_status_and_link(record)
                     st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
-                    if "http" in doc_link:
-                        st.markdown(f"[📄 View Generated Document]({doc_link})")
-                    st.write("")
                     
+                    # Display appropriate document link based on execution status
+                    if status == "Fully Executed":
+                        st.success(f"📜 **Fully Executed Agreement:**\n\n[📥 Click to Download Final PDF]({get_pdf_link(doc_link)})")
+                    elif "http" in doc_link:
+                        st.info(f"📄 **Draft Document:**\n\n[View Google Doc]({doc_link})")
+                        
+                    st.write("")
                     tab1, tab2, tab3 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline", "✍️ Signatures"])
                     
                     with tab1:
