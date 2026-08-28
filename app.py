@@ -56,17 +56,21 @@ except Exception as e:
     st.stop()
 
 def compress_image_to_base64(uploaded_file, max_width=200):
-    """Shrinks image footprint to fit inside Google Sheets cells safely."""
+    """Shrinks image footprint to fit safely in Google Sheets while preserving transparency."""
     img = Image.open(uploaded_file)
-    if img.mode != 'RGB': img = img.convert('RGB')
+    
+    # Force RGBA mode to ensure transparent backgrounds don't turn black
+    img = img.convert("RGBA")
+    
     w_percent = (max_width / float(img.size[0]))
     h_size = int((float(img.size[1]) * float(w_percent)))
     img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
     
     buffered = io.BytesIO()
-    img.save(buffered, format="JPEG", quality=50)
+    # Save strictly as PNG to retain the alpha transparency channel
+    img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/jpeg;base64,{img_str}"
+    return f"data:image/png;base64,{img_str}"
 
 def send_email(to_emails, subject, body):
     try:
@@ -121,14 +125,11 @@ def get_status_badge(status_text):
     else: return f"<div class='badge badge-pending'>⏳ {status_text}</div>"
 
 def render_field(label, value):
-    """Safely renders fields for the UI dashboard."""
     safe_value = str(value).strip() if str(value).strip() else "—"
     st.markdown(f"<div><div class='field-label'>{label}</div><div class='field-value'>{safe_value}</div></div>", unsafe_allow_html=True)
 
 def render_pdf_iframe(url, height=600):
-    """Replaces deprecated st.components.v1.iframe with a native HTML iframe."""
     st.markdown(f'<iframe src="{url}" width="100%" height="{height}px" style="border: none; border-radius: 8px;"></iframe>', unsafe_allow_html=True)
-
 
 # ==========================================
 # OAUTH 2.0 LOGIN SYSTEM
@@ -242,11 +243,11 @@ else:
                                 st.markdown(f"<div class='signature-font'>{saurabh_sig_text}</div>", unsafe_allow_html=True)
                                 saurabh_payload = saurabh_sig_text
                         else:
-                            sig_file = st.file_uploader("Upload Signature Image:", type=["png", "jpg", "jpeg"])
+                            sig_file = st.file_uploader("Upload Signature Image (PNG/JPG):", type=["png", "jpg", "jpeg"])
                             if sig_file: saurabh_payload = compress_image_to_base64(sig_file)
 
                         st.write("")
-                        stamp_file = st.file_uploader("Upload Company Stamp Image:", type=["png", "jpg", "jpeg"])
+                        stamp_file = st.file_uploader("Upload Company Stamp Image (PNG/JPG):", type=["png", "jpg", "jpeg"])
                         stamp_payload = compress_image_to_base64(stamp_file) if stamp_file else ""
 
                         if st.button("Apply Signatures & Stamp", type="primary", use_container_width=True):
@@ -288,7 +289,7 @@ else:
                                 st.markdown(f"<div class='signature-font'>{sig_text}</div>", unsafe_allow_html=True)
                                 vl_payload = sig_text
                         else:
-                            sig_file = st.file_uploader("Upload Signature Image:", type=["png", "jpg", "jpeg"])
+                            sig_file = st.file_uploader("Upload Signature Image (PNG/JPG):", type=["png", "jpg", "jpeg"])
                             if sig_file: vl_payload = compress_image_to_base64(sig_file)
 
                         if st.button("Submit Digital Signature", type="primary", use_container_width=True):
@@ -376,11 +377,27 @@ else:
                                     
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
-                                    email_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
                                     
-                                    success, err = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
+                                    # 1. Threaded Email to Internal Staff
+                                    internal_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
+                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, internal_body)
+                                    
+                                    # 2. Custom Email specifically for the VL
+                                    vl_email = target_row_data.get("VL Mail ID")
+                                    vl_subject = "New signature request from Vahan Technologies"
+                                    vl_body = f"""
+                                    <div style='font-family: sans-serif; padding: 20px;'>
+                                        <p>Vahan Technologies is inviting you to review and sign an Agreement.</p>
+                                        <br>
+                                        <a href='{sign_link}' style='display: inline-block; padding: 12px 24px; background-color: #000080; color: white; text-decoration: none; font-weight: bold; border-radius: 4px;'>Review and Sign Agreement</a>
+                                        <br><br>
+                                        <p style='color: #666; font-size: 12px;'>This is an automated message from the Vahan E-Sign Portal.</p>
+                                    </div>
+                                    """
+                                    success, err = send_email([vl_email], vl_subject, vl_body)
+                                    
                                     if success:
-                                        log_email_to_history(row_index, history, "E-Sign links dispatched.")
+                                        log_email_to_history(row_index, history, "E-Sign links dispatched to VL.")
                                         st.success("Approved! Links dispatched.")
                                         if url_ticket_id: st.query_params.clear()
                                         else: del st.session_state['approval_ticket_id']
@@ -463,6 +480,7 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}. Awaiting document generation."}]
 
+                    # Expand to 24 columns for signature image tracking
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
@@ -498,14 +516,13 @@ else:
                     tickets_to_sign.append(r)
                     
         if not tickets_to_sign:
-            pass # Keep it clean since we have an info banner above
+            pass
         else:
             ticket_options = [f"{r['Ticket ID']} — {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']}" for r in tickets_to_sign]
             selected_option = st.selectbox("Select an agreement to sign:", ticket_options)
             
             if selected_option:
                 selected_id = selected_option.split(" — ")[0]
-                # Redirect them cleanly to the URL router view for full signing UI
                 st.query_params["ticket_id"] = selected_id
                 st.rerun()
 
