@@ -116,7 +116,6 @@ def get_status_badge(status_text):
     else: return f"<div class='badge badge-pending'>⏳ {status_text}</div>"
 
 def render_details_table(record):
-    """Renders all captured details into a clean Markdown/HTML tabular format"""
     vl_name = record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', record.get('VL Name', '—'))
     business = record.get('Current business', '—')
     vl_email = record.get('VL Mail ID', '—')
@@ -246,8 +245,6 @@ else:
             # ROUTING: E-SIGN PORTAL
             if current_status == "Approved" and (is_saurabh or user_email.lower() == vl_email_on_record):
                 st.markdown(f"## ✍️ E-Sign Agreement: `{target_ticket_id}`")
-                
-                # NATIVE PDF EMBEDDING
                 st.info("📄 Please review the document before signing.")
                 with st.expander("🔍 Click to Expand & Review Agreement"):
                     render_pdf_iframe(preview_link, height=600)
@@ -282,7 +279,6 @@ else:
                                 try: history = json.loads(target_row_data.get("History Log", "[]"))
                                 except: history = []
                                 history.append({"time": current_time, "title": "✍️ Signed by Vahan", "details": "Saurabh Dubey signed and stamped."})
-                                
                                 worksheet.update_cell(row_index, 23, saurabh_payload) 
                                 worksheet.update_cell(row_index, 24, stamp_payload) 
                                 
@@ -324,7 +320,6 @@ else:
                                 try: history = json.loads(target_row_data.get("History Log", "[]"))
                                 except: history = []
                                 history.append({"time": current_time, "title": "✍️ Signed by VL", "details": f"Digitally signed by {sig_name}."})
-                                
                                 worksheet.update_cell(row_index, 20, vl_payload)
                                 worksheet.update_cell(row_index, 21, sig_name)
                                 worksheet.update_cell(row_index, 22, sig_desig)
@@ -426,7 +421,11 @@ else:
                                     history.append({"time": current_time, "title": "❌ Rejected", "details": f"Rejected. Reason: {comments}"})
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     
-                                    email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p>"
+                                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
+                                    ticket_link = f"{app_url}/?ticket_id={target_ticket_id}"
+                                    
+                                    # ADDED TICKET LINK TO REJECTION EMAIL
+                                    email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p><br><p>👉 <b><a href='{ticket_link}'>Click here to Modify and Resubmit the Request</a></b></p>"
                                     send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     st.success("Rejection logged.")
@@ -493,7 +492,6 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}. Awaiting document generation."}]
 
-                    # Expand to 24 columns for signature tracking
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
@@ -528,12 +526,10 @@ else:
                 elif user_email.lower() == str(r.get("VL Mail ID", "")).lower() and not r.get("VL Signature", ""):
                     tickets_to_sign.append(r)
                     
-        if not tickets_to_sign:
-            pass
+        if not tickets_to_sign: pass
         else:
             ticket_options = [f"{r['Ticket ID']} — {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']}" for r in tickets_to_sign]
             selected_option = st.selectbox("Select an agreement to sign:", ticket_options)
-            
             if selected_option:
                 selected_id = selected_option.split(" — ")[0]
                 st.query_params["ticket_id"] = selected_id
@@ -580,10 +576,68 @@ else:
                 st.write("")
                 record = next((r for r in user_records if r["Ticket ID"] == viewing_ticket_id), None)
                 if record:
+                    row_index = records.index(record) + 2
                     status, doc_link = get_status_and_link(record)
                     preview_link = get_preview_link(doc_link)
                     st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
+                    
+                    # --- RESUBMISSION FORM LOGIC ---
+                    if status == "Rejected" and str(record.get("Requestor Mail ID", "")).lower() == user_email.lower():
+                        st.error("⚠️ This ticket requires revisions. Please update the details below and resubmit.")
+                        with st.form(f"resubmit_form_{viewing_ticket_id}"):
+                            st.markdown("#### ✏️ Edit Ticket Details")
+                            c1, c2 = st.columns(2)
+                            new_vl_name = c1.text_input("VL Name:", value=record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', ''))
+                            new_business = c2.text_input("Current business:", value=record.get('Current business', ''))
+                            
+                            c3, c4 = st.columns(2)
+                            new_gst = c3.text_input("GST number:", value=record.get('GST number (mention N/A if non-GST)', ''))
+                            new_pan = c4.text_input("PAN details:", value=record.get('PAN details', ''))
+                            
+                            new_age = c1.text_input("VL Age:", value=record.get('VL Age (If non GST mention owner age)', ''))
+                            new_reg_addr = st.text_area("Registered Address:", value=record.get('Registered Address', ''))
+                            new_ops_addr = st.text_area("Address of operations:", value=record.get('Address of operations', ''))
+                            
+                            o1, o2, o3 = st.columns(3)
+                            new_tc = o1.text_input("No. of TCs:", value=record.get('No. of TCs Deploying:', record.get('Number of TCs VL is deploying', '')))
+                            new_clients = o2.text_input("Clients Operated On:", value=record.get('Clients Operated On:', record.get('Clients will the VL operate on', '')))
+                            new_fts = o3.text_input("Planned FTs:", value=record.get('Planned FTs (M1/M2/M3):', record.get('Planned FTs in M1/M2/M3', '')))
+                            
+                            r1, r2 = st.columns(2)
+                            new_vl_email = r1.text_input("VL Mail ID:", value=record.get('VL Mail ID', ''))
+                            new_zm_email = r2.text_input("ZM's Mail ID:", value=record.get("ZM's Mail ID:", record.get("ZM Mail ID", '')))
+                            
+                            if st.form_submit_button("🔄 Save & Resubmit Request", type="primary", use_container_width=True):
+                                current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                try: history = json.loads(record.get("History Log", "[]"))
+                                except: history = []
+                                history.append({"time": current_time, "title": "🔄 Ticket Resubmitted", "details": f"Requestor updated details. Generating new document."})
+                                
+                                # Update Sheet Data
+                                worksheet.update_cell(row_index, 2, new_vl_name)
+                                worksheet.update_cell(row_index, 3, new_reg_addr)
+                                worksheet.update_cell(row_index, 4, new_gst)
+                                worksheet.update_cell(row_index, 5, new_pan)
+                                worksheet.update_cell(row_index, 6, new_ops_addr)
+                                worksheet.update_cell(row_index, 7, new_tc)
+                                worksheet.update_cell(row_index, 8, new_business)
+                                worksheet.update_cell(row_index, 9, new_age)
+                                worksheet.update_cell(row_index, 10, new_vl_email)
+                                worksheet.update_cell(row_index, 13, new_tc)
+                                worksheet.update_cell(row_index, 14, new_clients)
+                                worksheet.update_cell(row_index, 15, new_fts)
+                                worksheet.update_cell(row_index, 17, new_zm_email)
+                                
+                                # Set triggers for Apps Script regeneration
+                                worksheet.update_cell(row_index, 11, "") # Clear Doc Link to force new gen
+                                worksheet.update_cell(row_index, 19, "Pending Approval") 
+                                worksheet.update_cell(row_index, 18, json.dumps(history))
+                                
+                                st.success("✅ Resubmitted successfully! Document regeneration has started.")
+                                st.rerun()
+                                
+                        st.divider()
                     
                     if "Fully Executed" in status or "Executing" in status:
                         st.success("📜 **Agreement Executed!**")
