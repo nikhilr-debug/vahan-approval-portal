@@ -26,8 +26,6 @@ def apply_custom_css():
         .badge-approved { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .badge-rejected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .badge-executed { background-color: #cce5ff; color: #004085; border: 1px solid #b8daff; }
-        .field-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 2px; }
-        .field-value { font-size: 1.05rem; color: #111827; font-weight: 500; margin-bottom: 16px; word-wrap: break-word; }
         
         .signature-font {
             font-family: 'Brush Script MT', 'Caveat', 'Pacifico', cursive;
@@ -56,18 +54,13 @@ except Exception as e:
     st.stop()
 
 def compress_image_to_base64(uploaded_file, max_width=200):
-    """Shrinks image footprint to fit safely in Google Sheets while preserving transparency."""
     img = Image.open(uploaded_file)
-    
-    # Force RGBA mode to ensure transparent backgrounds don't turn black
     img = img.convert("RGBA")
-    
     w_percent = (max_width / float(img.size[0]))
     h_size = int((float(img.size[1]) * float(w_percent)))
     img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
     
     buffered = io.BytesIO()
-    # Save strictly as PNG to retain the alpha transparency channel
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/png;base64,{img_str}"
@@ -100,10 +93,8 @@ def log_email_to_history(row_index, current_history, details_text):
     worksheet.update_cell(row_index, 18, json.dumps(current_history))
 
 def get_preview_link(doc_link):
-    """Converts the link for iframe embedding"""
     doc_link = str(doc_link).strip()
-    if "/edit" in doc_link:
-        return doc_link.split("/edit")[0] + "/preview"
+    if "/edit" in doc_link: return doc_link.split("/edit")[0] + "/preview"
     return doc_link
 
 def get_status_and_link(record):
@@ -124,9 +115,42 @@ def get_status_badge(status_text):
     elif "Rejected" in status_text: return f"<div class='badge badge-rejected'>❌ {status_text}</div>"
     else: return f"<div class='badge badge-pending'>⏳ {status_text}</div>"
 
-def render_field(label, value):
-    safe_value = str(value).strip() if str(value).strip() else "—"
-    st.markdown(f"<div><div class='field-label'>{label}</div><div class='field-value'>{safe_value}</div></div>", unsafe_allow_html=True)
+def render_details_table(record):
+    """Renders all captured details into a clean Markdown/HTML tabular format"""
+    vl_name = record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', record.get('VL Name', '—'))
+    business = record.get('Current business', '—')
+    vl_email = record.get('VL Mail ID', '—')
+    gst = record.get('GST number (mention N/A if non-GST)', record.get('GST number (Leave blank if non-GST)', '—'))
+    pan = record.get('PAN details', '—')
+    vl_age = record.get('VL Age (If non GST mention owner age)', '—')
+    reg_address = record.get('Registered Address', '—')
+    ops_address = record.get('Address of operations', '—')
+    
+    tc_count = record.get('No. of TCs Deploying:', record.get('No. of TCs Deploying', record.get('Number of TCs VL is deploying', record.get('No. Of TCs VL is deploying', '—'))))
+    clients = record.get('Clients Operated On:', record.get('Clients Operated On', record.get('Clients will the VL operate on', '—')))
+    fts = record.get('Planned FTs (M1/M2/M3):', record.get('Planned FTs (M1/M2/M3)', record.get('Planned FTs in M1/M2/M3', '—')))
+    
+    req_email = record.get('Requestor Mail ID', record.get('Requestor (Auto-filled):', '—'))
+    zm_email = record.get("ZM's Mail ID:", record.get("ZM's Mail ID", record.get("ZM Mail ID", '—')))
+    
+    html = f"""
+    <table style='width:100%; border-collapse: collapse; font-family: sans-serif; font-size: 0.9em;'>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb; width: 35%;'><b>VL Name</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{vl_name}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Current Business</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{business}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>GST Number</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{gst}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>PAN Details</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{pan}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>VL Age</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{vl_age}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Registered Address</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{reg_address}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Address of Operations</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{ops_address}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>No. of TCs Deploying</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{tc_count}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Clients Operated On</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{clients}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Planned FTs</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{fts}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>VL Email</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{vl_email}</td></tr>
+        <tr><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>ZM Email</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{zm_email}</td></tr>
+        <tr style='background-color: #f9fafb;'><td style='padding: 8px; border: 1px solid #e5e7eb;'><b>Requestor Email</b></td><td style='padding: 8px; border: 1px solid #e5e7eb;'>{req_email}</td></tr>
+    </table>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_pdf_iframe(url, height=600):
     st.markdown(f'<iframe src="{url}" width="100%" height="{height}px" style="border: none; border-radius: 8px;"></iframe>', unsafe_allow_html=True)
@@ -167,10 +191,10 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
+    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
@@ -345,19 +369,8 @@ else:
                             with st.expander("🔍 Click to Review Draft"):
                                 render_pdf_iframe(preview_link, height=600)
                             
-                        c1_inner, c2_inner = st.columns(2)
-                        with c1_inner:
-                            render_field("Applicant Name", vl_name)
-                            render_field("Current Business", target_row_data.get("Current business"))
-                            render_field("VL Email", target_row_data.get('VL Mail ID'))
-                            render_field("GST Number", target_row_data.get('GST number (mention N/A if non-GST)', target_row_data.get('GST number (Leave blank if non-GST)')))
-                            render_field("Registered Address", target_row_data.get('Registered Address'))
-                        with c2_inner:
-                            render_field("Requestor Email", target_row_data.get('Requestor Mail ID'))
-                            render_field("ZM Email", target_row_data.get('ZM Mail ID'))
-                            render_field("VL Age", target_row_data.get('VL Age (If non GST mention owner age)'))
-                            render_field("PAN Details", target_row_data.get('PAN details'))
-                            render_field("Address of Operations", target_row_data.get('Address of operations'))
+                        st.write("")
+                        render_details_table(target_row_data)
                         
                 with col2:
                     st.markdown("### ⚡ Action Panel")
@@ -380,7 +393,7 @@ else:
                                     
                                     # 1. Threaded Email to Internal Staff
                                     internal_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
-                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, internal_body)
+                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, internal_body)
                                     
                                     # 2. Custom Email specifically for the VL
                                     vl_email = target_row_data.get("VL Mail ID")
@@ -414,7 +427,7 @@ else:
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     
                                     email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p>"
-                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
+                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     st.success("Rejection logged.")
                                     if url_ticket_id: st.query_params.clear()
@@ -480,7 +493,7 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}. Awaiting document generation."}]
 
-                    # Expand to 24 columns for signature image tracking
+                    # Expand to 24 columns for signature tracking
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
@@ -583,13 +596,9 @@ else:
                     st.write("")
                     tab1, tab2 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline"])
                     with tab1:
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            render_field("VL Name", record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)"))
-                            render_field("Current Business", record.get("Current business"))
-                        with c2:
-                            render_field("Requestor Email", record.get("Requestor Mail ID"))
-                            render_field("ZM Email", record.get("ZM Mail ID"))
+                        st.write("")
+                        render_details_table(record)
+
                     with tab2:
                         try:
                             history = json.loads(record.get("History Log", "[]"))
