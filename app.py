@@ -11,7 +11,7 @@ import json
 import io
 from streamlit_oauth import OAuth2Component
 
-# PDF Overlay Libraries
+# PDF Processing & Drawing
 try:
     from pypdf import PdfReader, PdfWriter
 except ImportError:
@@ -96,7 +96,6 @@ def send_email(to_emails, subject, body, pdf_attachment_bytes=None, pdf_filename
         return False, str(e)
 
 def get_pdf_link(doc_link):
-    """Always converts Google Doc URLs into non-editable PDF export links"""
     doc_link = str(doc_link).strip()
     if "/edit" in doc_link:
         return doc_link.split("/edit")[0] + "/export?format=pdf"
@@ -104,65 +103,100 @@ def get_pdf_link(doc_link):
 
 def create_stamped_pdf(pdf_bytes, vl_sig_text="", saurabh_sig_name="", stamp_bytes=None):
     """
-    Overlays VL Signature, Saurabh Cursive Signature, and Company Stamp Image
-    directly onto specific coordinates of the last page of the PDF.
+    Dynamically searches for [VL Signature] and [Saurabh Dubey Signature and image]
+    placeholders, erases the text, and overlays signatures and stamp directly at those locations.
     """
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
         writer = PdfWriter()
         num_pages = len(reader.pages)
         
-        for i in range(num_pages):
-            page = reader.pages[i]
-            if i == num_pages - 1: # Target the signature page (last page)
+        vl_loc = None      # Stores (page_index, x, y)
+        saurabh_loc = None # Stores (page_index, x, y)
+        
+        # Scan PDF pages to find placeholder text coordinates
+        for page_idx, page in enumerate(reader.pages):
+            def visitor_text(text, cm, tm, font_dict, font_size):
+                nonlocal vl_loc, saurabh_loc
+                if "[VL Signature]" in text or "[VL" in text:
+                    if not vl_loc:
+                        vl_loc = (page_idx, tm[4], tm[5])
+                        
+                if "[Saurabh Dubey" in text or "[Saurabh" in text:
+                    if not saurabh_loc:
+                        saurabh_loc = (page_idx, tm[4], tm[5])
+                        
+            page.extract_text(visitor_text=visitor_text)
+
+        # Fallback to last page if placeholders are missing
+        if not vl_loc:
+            vl_loc = (num_pages - 1, 50, 95)
+        if not saurabh_loc:
+            saurabh_loc = (num_pages - 1, 340, 95)
+
+        # Group overlay tasks by page
+        pages_to_overlay = {}
+        if vl_sig_text and vl_loc:
+            p_idx, x, y = vl_loc
+            pages_to_overlay.setdefault(p_idx, []).append(('vl', x, y))
+        if saurabh_sig_name and saurabh_loc:
+            p_idx, x, y = saurabh_loc
+            pages_to_overlay.setdefault(p_idx, []).append(('saurabh', x, y))
+
+        for page_idx in range(num_pages):
+            page = reader.pages[page_idx]
+            if page_idx in pages_to_overlay:
                 width = float(page.mediabox.width)
                 height = float(page.mediabox.height)
                 
                 packet = io.BytesIO()
                 can = canvas.Canvas(packet, pagesize=(width, height))
                 
-                # --- LEFT SIDE: VL DIGITAL SIGNATURE ---
-                if vl_sig_text:
-                    can.setFont("Helvetica-Bold", 9)
-                    can.setFillColorRGB(0.1, 0.1, 0.3)
-                    can.drawString(50, 95, "DIGITALLY SIGNED BY VL")
-                    can.setFont("Helvetica", 8)
-                    can.setFillColorRGB(0.2, 0.2, 0.2)
-                    can.drawString(50, 80, str(vl_sig_text)[:55])
-                    can.setStrokeColorRGB(0.2, 0.4, 0.8)
-                    can.line(50, 75, 250, 75)
-
-                # --- RIGHT SIDE: SAURABH SIGNATURE & STAMP ---
-                if saurabh_sig_name:
-                    can.setFont("Times-BoldItalic", 15)
-                    can.setFillColorRGB(0.0, 0.0, 0.5) # Navy blue cursive effect
-                    can.drawString(340, 95, f"Saurabh Dubey ({saurabh_sig_name})")
-                    can.setFont("Helvetica-Bold", 8)
-                    can.setFillColorRGB(0.2, 0.2, 0.2)
-                    can.drawString(340, 80, "Authorized Signatory - Vahan")
-                    can.setStrokeColorRGB(0.2, 0.4, 0.8)
-                    can.line(340, 75, 540, 75)
+                items = pages_to_overlay[page_idx]
+                for item_type, x, y in items:
+                    # White rectangle covers and hides placeholder bracket text
+                    can.setFillColorRGB(1, 1, 1)
+                    can.rect(x - 5, y - 5, 230, 50, fill=1, stroke=0)
                     
-                    if stamp_bytes:
-                        try:
-                            img = ImageReader(io.BytesIO(stamp_bytes))
-                            can.drawImage(img, 440, 20, width=75, height=50, mask='auto')
-                        except Exception:
-                            pass
+                    if item_type == 'vl':
+                        can.setFont("Helvetica-Bold", 9)
+                        can.setFillColorRGB(0.1, 0.1, 0.3)
+                        can.drawString(x, y + 25, "DIGITALLY SIGNED BY VL")
+                        can.setFont("Helvetica", 8)
+                        can.setFillColorRGB(0.2, 0.2, 0.2)
+                        can.drawString(x, y + 10, str(vl_sig_text)[:55])
+                        can.setStrokeColorRGB(0.2, 0.4, 0.8)
+                        can.line(x, y + 5, x + 200, y + 5)
+                        
+                    elif item_type == 'saurabh':
+                        can.setFont("Times-BoldItalic", 15)
+                        can.setFillColorRGB(0.0, 0.0, 0.5) # Cursive navy signature
+                        can.drawString(x, y + 25, f"Saurabh Dubey ({saurabh_sig_name})")
+                        can.setFont("Helvetica-Bold", 8)
+                        can.setFillColorRGB(0.2, 0.2, 0.2)
+                        can.drawString(x, y + 10, "Authorized Signatory - Vahan")
+                        can.setStrokeColorRGB(0.2, 0.4, 0.8)
+                        can.line(x, y + 5, x + 200, y + 5)
+                        
+                        if stamp_bytes:
+                            try:
+                                img = ImageReader(io.BytesIO(stamp_bytes))
+                                can.drawImage(img, x + 120, y - 15, width=75, height=50, mask='auto')
+                            except Exception:
+                                pass
 
                 can.save()
                 packet.seek(0)
-                
                 overlay_pdf = PdfReader(packet)
                 page.merge_page(overlay_pdf.pages[0])
                 
             writer.add_page(page)
-            
+
         output = io.BytesIO()
         writer.write(output)
         return output.getvalue()
     except Exception as e:
-        st.error(f"Error drawing signatures onto PDF: {e}")
+        st.error(f"Error placing signatures at placeholders: {e}")
         return pdf_bytes
 
 def render_field(label, value):
@@ -484,7 +518,7 @@ else:
                         st.error(f"Database error: {err}")
 
     # ------------------------------------------
-    # VIEW 3: E-SIGN PORTAL (STAMP & SIGN)
+    # VIEW 3: E-SIGN PORTAL (STAMP & SIGN AT PLACEHOLDERS)
     # ------------------------------------------
     elif page == "✍️ E-Sign Portal":
         st.markdown("## ✍️ E-Sign Portal")
@@ -548,15 +582,14 @@ else:
                                 
                                 vl_already_signed = bool(record.get("VL Signature", "").strip())
                                 if vl_already_signed:
-                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. PDF stamped and distributed."})
+                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. PDF stamped at placeholders."})
                                     
-                                    # Fetch original PDF & Stamp directly onto PDF coordinates
                                     pdf_res = requests.get(pdf_link)
                                     if pdf_res.status_code == 200:
                                         stamp_bytes = stamp_file.getvalue()
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, record.get("VL Signature", ""), sig_name, stamp_bytes)
                                         
-                                        email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed and stamped by all parties. Attached is the final executed PDF.</p>"
+                                        email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed and stamped at the placeholder locations. Attached is the final executed PDF.</p>"
                                         send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
                                     
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
@@ -584,7 +617,7 @@ else:
                                 
                                 saurabh_already_signed = bool(record.get("Saurabh Signature", "").strip())
                                 if saurabh_already_signed:
-                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. PDF stamped and distributed."})
+                                    history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties have signed. PDF stamped at placeholders."})
                                     
                                     pdf_res = requests.get(pdf_link)
                                     if pdf_res.status_code == 200:
@@ -657,7 +690,6 @@ else:
                     st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
                     
-                    # Generate on-the-fly stamped PDF download if fully executed
                     if status == "Fully Executed":
                         st.success("📜 **Agreement Fully Executed & Digitally Stamped**")
                         if "http" in pdf_link:
