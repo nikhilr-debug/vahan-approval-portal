@@ -260,10 +260,10 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
+    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
@@ -367,7 +367,7 @@ else:
                                         stamp_bytes = stamp_file.getvalue()
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, target_row_data.get("VL Signature", ""), sig_name, stamp_bytes)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}</b> has been signed and stamped. Attached is the final PDF.</p>"
-                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
+                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
                                     else:
                                         st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view' for Python to stamp it.")
 
@@ -405,7 +405,7 @@ else:
                                     if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, sig_log, "Saurabh Dubey", None)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}</b> has been signed by all parties. Attached is the final PDF.</p>"
-                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
+                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
                                     else:
                                         st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
 
@@ -489,7 +489,7 @@ else:
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     email_body = f"<h3>Document Approved & Ready for Signature</h3><p>The document for <b>{vl_name}</b> has been approved.</p><p><a href='{sign_link}'>Click here to Review and Sign Agreement ({target_ticket_id})</a></p>"
                                     
-                                    success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
+                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
                                     if success:
                                         st.success("Approved! E-Sign links dispatched.")
                                         if url_ticket_id: st.query_params.clear()
@@ -507,7 +507,7 @@ else:
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     
                                     vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
-                                    success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
+                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
                                     
                                     if success:
                                         st.success("Rejection logged.")
@@ -605,7 +605,7 @@ else:
                         worksheet.insert_row(new_row, index=2)
                         app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
                         approval_link = f"{app_url}/?ticket_id={new_ticket_id}"
-                        success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{approval_link}'>Review Request</a></p>")
+                        success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{approval_link}'>Review Request</a></p>")
                         
                         if success:
                             st.success(f"🎉 Ticket **{new_ticket_id}** created successfully!")
@@ -688,7 +688,7 @@ else:
                                         stamp_bytes = stamp_file.getvalue()
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, record.get("VL Signature", ""), sig_name, stamp_bytes)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed and stamped. Attached is the final executed PDF.</p>"
-                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
+                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
                                     else:
                                         st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
                                         
@@ -724,7 +724,7 @@ else:
                                     if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, sig_log, "Saurabh Dubey", None)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed by all parties. Attached is the final executed PDF.</p>"
-                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
+                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
                                     else:
                                         st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
 
