@@ -32,6 +32,23 @@ def apply_custom_css():
         .badge-approved { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .badge-rejected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         
+        /* Typography for Fields */
+        .field-label {
+            font-size: 0.75rem; 
+            color: #6b7280; 
+            text-transform: uppercase; 
+            font-weight: 700; 
+            letter-spacing: 0.05em; 
+            margin-bottom: 2px;
+        }
+        .field-value {
+            font-size: 1.05rem; 
+            color: #111827; 
+            font-weight: 500; 
+            margin-bottom: 16px; 
+            word-wrap: break-word;
+        }
+        
         /* Headers */
         h1, h2, h3 { color: #1f2937; font-weight: 700; }
         
@@ -88,6 +105,18 @@ def get_status_badge(status_text):
     else:
         return f"<div class='badge badge-pending'>⏳ {status_text}</div>"
 
+# New UI Helper: Renders Data beautifully with separated Labels and Values
+def render_field(label, value):
+    safe_value = str(value).strip()
+    if not safe_value:
+        safe_value = "—"
+    st.markdown(f"""
+    <div>
+        <div class='field-label'>{label}</div>
+        <div class='field-value'>{safe_value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 # ==========================================
 # OAUTH 2.0 LOGIN SYSTEM
 # ==========================================
@@ -143,6 +172,9 @@ else:
     
     if not ticket_id:
         page = st.sidebar.radio("Main Menu", ["📝 Create New Ticket", "🗄️ Ticket Dashboard"])
+        # Clear viewing state if navigating away from the dashboard
+        if page != "🗄️ Ticket Dashboard" and 'viewing_ticket' in st.session_state:
+            del st.session_state['viewing_ticket']
     
     st.sidebar.divider()
     if st.sidebar.button("🚪 Logout", use_container_width=True):
@@ -178,7 +210,6 @@ else:
                 try: history = json.loads(target_row_data.get("History Log", "[]"))
                 except: history = []
 
-                # Render Status Badge directly via HTML
                 st.markdown(get_status_badge(current_status), unsafe_allow_html=True)
                 
                 col1, col2 = st.columns([1.5, 1])
@@ -191,28 +222,35 @@ else:
                         elif "Rejected" not in current_status:
                             st.info("🔄 Google Apps Script is currently generating the document...")
                             
-                        # Layout data in a clean grid
+                        # Beautifully Rendered Data using the new Helper
                         c1, c2 = st.columns(2)
-                        c1.markdown(f"**Applicant Name:**\n{target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')}")
-                        c2.markdown(f"**VL Email:**\n{target_row_data.get('VL Mail ID', 'N/A')}")
-                        
-                        c1.markdown(f"**Requestor:**\n{target_row_data.get('Requestor Mail ID', 'N/A')}")
-                        c2.markdown(f"**ZM Email:**\n{target_row_data.get('ZM Mail ID', 'N/A')}")
+                        with c1:
+                            render_field("Applicant Name", target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A'))
+                            render_field("Requestor Email", target_row_data.get('Requestor Mail ID', 'N/A'))
+                        with c2:
+                            render_field("VL Email", target_row_data.get('VL Mail ID', 'N/A'))
+                            render_field("ZM Email", target_row_data.get('ZM Mail ID', 'N/A'))
                         
                         st.divider()
                         
-                        c1.markdown(f"**GST Number:**\n{target_row_data.get('GST number (mention N/A if non-GST)', target_row_data.get('GST number (Leave blank if non-GST)', 'N/A'))}")
-                        c2.markdown(f"**PAN Details:**\n{target_row_data.get('PAN details', 'N/A')}")
-                        
-                        st.markdown(f"**Registered Address:**\n{target_row_data.get('Registered Address', 'N/A')}")
-                        st.markdown(f"**Address of Ops:**\n{target_row_data.get('Address of operations', 'N/A')}")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            render_field("GST Number", target_row_data.get('GST number (mention N/A if non-GST)', target_row_data.get('GST number (Leave blank if non-GST)', 'N/A')))
+                        with c2:
+                            render_field("PAN Details", target_row_data.get('PAN details', 'N/A'))
+                            
+                        render_field("Registered Address", target_row_data.get('Registered Address', 'N/A'))
+                        render_field("Address of Operations", target_row_data.get('Address of operations', 'N/A'))
                         
                         st.divider()
                         
                         c1, c2, c3 = st.columns(3)
-                        c1.markdown(f"**TCs Deploying:**\n{target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying', 'N/A'))}")
-                        c2.markdown(f"**Clients:**\n{target_row_data.get('Clients will the VL operate on', 'N/A')}")
-                        c3.markdown(f"**Planned FTs:**\n{target_row_data.get('Planned FTs in M1/M2/M3', 'N/A')}")
+                        with c1:
+                            render_field("TCs Deploying", target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying', 'N/A')))
+                        with c2:
+                            render_field("Clients", target_row_data.get('Clients will the VL operate on', 'N/A'))
+                        with c3:
+                            render_field("Planned FTs", target_row_data.get('Planned FTs in M1/M2/M3', 'N/A'))
                         
                 with col2:
                     st.markdown("### ⚡ Action Panel")
@@ -335,7 +373,7 @@ else:
         
         records = worksheet.get_all_records()
         
-        # Deduplicate
+        # Deduplicate to show only the newest submission for each Ticket ID
         latest_records_map = {}
         for r in records:
             tid = str(r.get("Ticket ID", ""))
@@ -350,105 +388,158 @@ else:
                 or str(r.get("VL Mail ID", "")).lower() == user_email.lower()
             ]
             
-        # Metrics Top Bar
-        if user_records:
-            total_tickets = len(user_records)
-            pending_tickets = len([r for r in user_records if "Pending" in str(r.get("Document Status", ""))])
-            approved_tickets = len([r for r in user_records if "Approved" in str(r.get("Document Status", ""))])
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Tickets", total_tickets)
-            m2.metric("⏳ Pending Action", pending_tickets)
-            m3.metric("✅ Approved", approved_tickets)
-            st.divider()
-
         if not user_records:
             st.info("No tickets found in the system associated with your account.")
         else:
-            # Ticket Selector
-            ticket_options = [f"{r['Ticket ID']} — {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']}" for r in reversed(user_records)]
-            selected_option = st.selectbox("🔍 Search & Select Ticket", ticket_options)
+            # Check if a specific ticket is selected for deep view
+            viewing_ticket_id = st.session_state.get('viewing_ticket')
             
-            if selected_option:
-                selected_id = selected_option.split(" — ")[0]
-                record = next(r for r in user_records if r["Ticket ID"] == selected_id)
-                status = str(record.get("Document Status", ""))
-                is_rejected = "Rejected" in status
-                is_owner = (str(record.get("Requestor Mail ID", "")).lower() == user_email.lower()) or (str(record.get("VL Mail ID", "")).lower() == user_email.lower())
+            # ------------------------------------------
+            # MASTER VIEW: THE TICKETS LIST
+            # ------------------------------------------
+            if not viewing_ticket_id:
+                # Top Metrics
+                total_tickets = len(user_records)
+                pending_tickets = len([r for r in user_records if "Pending" in str(r.get("Document Status", ""))])
+                approved_tickets = len([r for r in user_records if "Approved" in str(r.get("Document Status", ""))])
                 
-                # Tab Layout
-                tab1, tab2, tab3 = st.tabs(["📝 Details", "🕒 Activity Log", "⚠️ Edit & Resubmit" if is_rejected else "🔒 Modifications Locked"])
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total Tickets", total_tickets)
+                m2.metric("⏳ Pending Action", pending_tickets)
+                m3.metric("✅ Approved", approved_tickets)
+                st.write("")
                 
-                with tab1:
+                # Table Headers
+                st.markdown("### 📋 Your Tickets")
+                col1, col2, col3, col4 = st.columns([1.5, 3, 2, 1])
+                col1.markdown("**Ticket ID**")
+                col2.markdown("**VL Name**")
+                col3.markdown("**Status**")
+                col4.markdown("**Action**")
+                st.divider()
+
+                # Table Rows
+                for r in reversed(user_records):
+                    c1, c2, c3, c4 = st.columns([1.5, 3, 2, 1])
+                    c1.write(f"**{r['Ticket ID']}**")
+                    c2.write(r['VL Name (Mention Owner name if Non-GST/NO GST is available)'])
+                    c3.markdown(get_status_badge(r['Document Status']), unsafe_allow_html=True)
+                    
+                    if c4.button("🔍 View", key=f"view_{r['Ticket ID']}", use_container_width=True):
+                        st.session_state['viewing_ticket'] = r['Ticket ID']
+                        st.rerun()
+                        
+            # ------------------------------------------
+            # DETAIL VIEW: IN-DEPTH TICKET LOOK
+            # ------------------------------------------
+            else:
+                if st.button("⬅️ Back to Ticket List"):
+                    del st.session_state['viewing_ticket']
+                    st.rerun()
+                
+                st.write("")
+                
+                record = next((r for r in user_records if r["Ticket ID"] == viewing_ticket_id), None)
+                if not record:
+                    st.error("Ticket not found.")
+                else:
+                    status = str(record.get("Document Status", ""))
+                    is_rejected = "Rejected" in status
+                    is_owner = (str(record.get("Requestor Mail ID", "")).lower() == user_email.lower()) or (str(record.get("VL Mail ID", "")).lower() == user_email.lower())
+                    
+                    st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
                     st.write("")
                     
-                    c1, c2 = st.columns(2)
-                    for idx, (key, value) in enumerate(record.items()):
-                        if key not in ["History Log", "Document Status"]: 
-                            if idx % 2 == 0:
-                                c1.markdown(f"**{key}:** {value}")
-                            else:
-                                c2.markdown(f"**{key}:** {value}")
+                    tab1, tab2, tab3 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline", "⚠️ Edit & Resubmit" if is_rejected else "🔒 Modifications Locked"])
                     
-                with tab2:
-                    try:
-                        history = json.loads(record.get("History Log", "[]"))
-                        for event in reversed(history):
-                            with st.container(border=True):
-                                st.markdown(f"**{event['title']}**")
-                                st.caption(f"🗓️ {event['time']} — {event['details']}")
-                    except:
-                        st.info("No timeline data available.")
-
-                with tab3:
-                    if is_rejected:
-                        if is_owner:
-                            st.warning("⚠️ This ticket requires revisions. Submitting updates will generate a fresh revision history.")
+                    with tab1:
+                        # Displaying details using our crisp typography helper
+                        st.write("")
+                        c1, c2 = st.columns(2)
+                        
+                        with c1:
+                            render_field("VL Name", record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)"))
+                            render_field("Current Business", record.get("Current business"))
+                            render_field("VL Email", record.get("VL Mail ID"))
+                            render_field("GST Number", record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)")))
+                            render_field("Registered Address", record.get("Registered Address"))
+                            render_field("Clients", record.get("Clients will the VL operate on"))
+                        
+                        with c2:
+                            render_field("Requestor Email", record.get("Requestor Mail ID"))
+                            render_field("ZM Email", record.get("ZM Mail ID"))
+                            render_field("VL Age", record.get("VL Age (If non GST mention owner age)"))
+                            render_field("PAN Details", record.get("PAN details"))
+                            render_field("Address of Operations", record.get("Address of operations"))
                             
-                            with st.form("resubmit_form"):
-                                c1, c2 = st.columns(2)
-                                res_name = c1.text_input("VL Name *", value=record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", ""))
-                                res_biz = c2.text_input("Current business *", value=record.get("Current business", ""))
+                            o1, o2 = st.columns(2)
+                            with o1: render_field("No. of TCs", record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying")))
+                            with o2: render_field("Planned FTs", record.get("Planned FTs in M1/M2/M3"))
+                        
+                    with tab2:
+                        st.write("")
+                        try:
+                            history = json.loads(record.get("History Log", "[]"))
+                            for event in reversed(history):
+                                with st.container(border=True):
+                                    st.markdown(f"**{event['title']}**")
+                                    st.caption(f"🗓️ {event['time']} — {event['details']}")
+                        except:
+                            st.info("No timeline data available.")
+
+                    with tab3:
+                        st.write("")
+                        if is_rejected:
+                            if is_owner:
+                                st.warning("⚠️ This ticket requires revisions. Submitting updates will generate a fresh revision history.")
                                 
-                                res_gst = c1.text_input("GST number *", value=record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)", "")))
-                                res_pan = c2.text_input("PAN details *", value=record.get("PAN details", ""))
-                                
-                                res_age = c1.text_input("VL Age *", value=record.get("VL Age (If non GST mention owner age)", ""))
-                                
-                                res_reg = st.text_area("Registered Address *", value=record.get("Registered Address", ""))
-                                res_ops = st.text_area("Address of operations *", value=record.get("Address of operations", ""))
-                                
-                                o1, o2, o3 = st.columns(3)
-                                res_tc = o1.text_input("Number of TCs *", value=record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying", "")))
-                                res_cli = o2.text_input("Clients *", value=record.get("Clients will the VL operate on", ""))
-                                res_ft = o3.text_input("Planned FTs *", value=record.get("Planned FTs in M1/M2/M3", ""))
-                                
-                                r1, r2 = st.columns(2)
-                                res_vl_mail = r1.text_input("VL Mail ID *", value=record.get("VL Mail ID", ""))
-                                res_zm_mail = r2.text_input("ZM Mail ID *", value=record.get("ZM Mail ID", ""))
-                                
-                                if st.form_submit_button("🔄 Update and Resubmit", use_container_width=True):
-                                    current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                    try: history_log = json.loads(record.get("History Log", "[]"))
-                                    except: history_log = []
+                                with st.form("resubmit_form"):
+                                    c1, c2 = st.columns(2)
+                                    res_name = c1.text_input("VL Name *", value=record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", ""))
+                                    res_biz = c2.text_input("Current business *", value=record.get("Current business", ""))
+                                    
+                                    res_gst = c1.text_input("GST number *", value=record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)", "")))
+                                    res_pan = c2.text_input("PAN details *", value=record.get("PAN details", ""))
+                                    
+                                    res_age = c1.text_input("VL Age *", value=record.get("VL Age (If non GST mention owner age)", ""))
+                                    
+                                    res_reg = st.text_area("Registered Address *", value=record.get("Registered Address", ""))
+                                    res_ops = st.text_area("Address of operations *", value=record.get("Address of operations", ""))
+                                    
+                                    o1, o2, o3 = st.columns(3)
+                                    res_tc = o1.text_input("Number of TCs *", value=record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying", "")))
+                                    res_cli = o2.text_input("Clients *", value=record.get("Clients will the VL operate on", ""))
+                                    res_ft = o3.text_input("Planned FTs *", value=record.get("Planned FTs in M1/M2/M3", ""))
+                                    
+                                    r1, r2 = st.columns(2)
+                                    res_vl_mail = r1.text_input("VL Mail ID *", value=record.get("VL Mail ID", ""))
+                                    res_zm_mail = r2.text_input("ZM Mail ID *", value=record.get("ZM Mail ID", ""))
+                                    
+                                    if st.form_submit_button("🔄 Update and Resubmit", use_container_width=True):
+                                        current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                        try: history_log = json.loads(record.get("History Log", "[]"))
+                                        except: history_log = []
+                                            
+                                        history_log.append({"time": current_time, "title": "🔄 Resubmitted", "details": f"Ticket fields updated by {user_email}."})
                                         
-                                    history_log.append({"time": current_time, "title": "🔄 Resubmitted", "details": f"Ticket fields updated by {user_email}."})
-                                    
-                                    new_row = [
-                                        current_time, res_name, res_reg, res_gst, res_pan, 
-                                        res_ops, res_tc, res_biz, res_age, res_vl_mail, 
-                                        "Pending Approval", selected_id, res_tc, res_cli, 
-                                        res_ft, record.get("Requestor Mail ID", user_email), 
-                                        res_zm_mail, json.dumps(history_log)
-                                    ]
-                                    
-                                    worksheet.append_row(new_row)
-                                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
-                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted: {res_name}", f"<h3>Resubmitted Request: {selected_id}</h3><p><a href='{app_url}/?ticket_id={selected_id}'>Review Request</a></p>")
-                                    st.success("Ticket successfully resubmitted!")
-                                    st.rerun()
+                                        new_row = [
+                                            current_time, res_name, res_reg, res_gst, res_pan, 
+                                            res_ops, res_tc, res_biz, res_age, res_vl_mail, 
+                                            "Pending Approval", viewing_ticket_id, res_tc, res_cli, 
+                                            res_ft, record.get("Requestor Mail ID", user_email), 
+                                            res_zm_mail, json.dumps(history_log)
+                                        ]
+                                        
+                                        worksheet.append_row(new_row)
+                                        app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
+                                        send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted: {res_name}", f"<h3>Resubmitted Request: {viewing_ticket_id}</h3><p><a href='{app_url}/?ticket_id={viewing_ticket_id}'>Review Request</a></p>")
+                                        st.success("Ticket successfully resubmitted!")
+                                        
+                                        # Kick the user back to the master list so they can see it updated
+                                        del st.session_state['viewing_ticket']
+                                        st.rerun()
+                            else:
+                                st.info("🔒 You are viewing someone else's ticket. Only the original requestor can resubmit.")
                         else:
-                            st.info("🔒 You are viewing someone else's ticket. Only the original requestor can resubmit.")
-                    else:
-                        st.info("🔒 This ticket is locked because it is Pending Approval or Approved.")
+                            st.info("🔒 This ticket is locked because it is Pending Approval or Approved.")
