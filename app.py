@@ -7,6 +7,10 @@ import datetime
 import uuid
 import requests
 import json
+import base64
+import io
+from PIL import Image
+import streamlit.components.v1 as components
 from streamlit_oauth import OAuth2Component
 
 # ==========================================
@@ -25,12 +29,9 @@ def apply_custom_css():
         .badge-executed { background-color: #cce5ff; color: #004085; border: 1px solid #b8daff; }
         .field-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 2px; }
         .field-value { font-size: 1.05rem; color: #111827; font-weight: 500; margin-bottom: 16px; word-wrap: break-word; }
-        h1, h2, h3 { color: #1f2937; font-weight: 700; }
-        .stTextInput>div>div>input { border-radius: 6px; }
-        .stTextArea>div>div>textarea { border-radius: 6px; }
         
         .signature-font {
-            font-family: 'Brush Script MT', 'Bradley Hand', cursive;
+            font-family: 'Brush Script MT', 'Caveat', 'Pacifico', cursive;
             font-size: 42px; color: #000080; padding: 10px;
             border-bottom: 2px solid #ccc; display: inline-block;
             min-width: 300px; background-color: #f9f9f9;
@@ -55,11 +56,23 @@ except Exception as e:
     st.error(f"Failed to connect to Google Sheets. Exact Error: {e}")
     st.stop()
 
+def compress_image_to_base64(uploaded_file, max_width=200):
+    """Shrinks image footprint to fit inside Google Sheets cells safely."""
+    img = Image.open(uploaded_file)
+    if img.mode != 'RGB': img = img.convert('RGB')
+    w_percent = (max_width / float(img.size[0]))
+    h_size = int((float(img.size[1]) * float(w_percent)))
+    img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
+    
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=50)
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/jpeg;base64,{img_str}"
+
 def send_email(to_emails, subject, body):
     try:
         sender_email = st.secrets["emails"]["sender_email"]
         sender_password = st.secrets["emails"]["sender_password"]
-        
         msg = MIMEMultipart()
         msg["Subject"] = subject
         msg["From"] = f"Vahan Ticketing <{sender_email}>"
@@ -71,7 +84,6 @@ def send_email(to_emails, subject, body):
             msg["To"] = to_emails
 
         msg.attach(MIMEText(body, "html"))
-
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_emails, msg.as_string())
@@ -84,30 +96,20 @@ def log_email_to_history(row_index, current_history, details_text):
     current_history.append({"time": current_time, "title": "📧 Email Sent", "details": details_text})
     worksheet.update_cell(row_index, 18, json.dumps(current_history))
 
-def get_pdf_link(doc_link):
+def get_preview_link(doc_link):
+    """Converts the link for iframe embedding"""
     doc_link = str(doc_link).strip()
     if "/edit" in doc_link:
-        return doc_link.split("/edit")[0] + "/export?format=pdf"
+        return doc_link.split("/edit")[0] + "/preview"
     return doc_link
-
-def render_field(label, value):
-    safe_value = str(value).strip() if str(value).strip() else "—"
-    st.markdown(f"<div><div class='field-label'>{label}</div><div class='field-value'>{safe_value}</div></div>", unsafe_allow_html=True)
 
 def get_status_and_link(record):
     raw_col_k = str(record.get("Document Status", "")).strip()
-    doc_link = ""
-    
-    if raw_col_k.startswith("http"): doc_link = get_pdf_link(raw_col_k)
-    elif "Approved - http" in raw_col_k: doc_link = get_pdf_link(raw_col_k.replace("Approved - ", ""))
+    doc_link = raw_col_k if raw_col_k.startswith("http") else ""
         
     status = str(record.get("Approval Status", "")).strip()
-    vl_sig = str(record.get("VL Signature", "")).strip()
-    saurabh_sig = str(record.get("Saurabh Signature", "")).strip()
-    
     if not status: 
         if raw_col_k.startswith("http"): status = "Pending Approval"
-        elif raw_col_k.startswith("Approved - "): status = "Approved"
         else: status = raw_col_k
         
     return status, doc_link
@@ -140,12 +142,10 @@ if "user_email" not in st.session_state:
         st.write("\n\n")
         st.title("🔒 Vahan Agreement Portal")
         st.markdown("Welcome to the Vahan Document Portal. Please authenticate using your Google account.")
-        
         result = oauth2.authorize_button(
             name="Sign in with Google", icon="https://www.google.com/favicon.ico",
             redirect_uri=redirect_uri, scope="openid email profile", key="google_login", use_container_width=True
         )
-        
         if result and "token" in result:
             token = result["token"]["access_token"]
             user_info = requests.get(f"https://www.googleapis.com/oauth2/v1/userinfo?access_token={token}").json()
@@ -157,43 +157,29 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
+    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
     st.sidebar.markdown(f"👤 **User:** `{user_email}`")
-    if is_admin:
-        st.sidebar.markdown("🛡️ **Role:** `Admin`")
-    elif is_internal_staff:
-        st.sidebar.markdown("💼 **Role:** `Vahan Team`")
-    else:
-        st.sidebar.markdown("🤝 **Role:** `External Vendor / VL`")
-        
     st.sidebar.divider()
     
     query_params = st.query_params
     url_ticket_id = query_params.get("ticket_id")
     approval_ticket_id = st.session_state.get('approval_ticket_id')
     
-    # STRICT ROLE-BASED NAVIGATION
-    if is_admin:
-        menu_options = ["📝 Create New Ticket", "✅ Pending Approvals", "✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
-    elif is_internal_staff:
-        menu_options = ["📝 Create New Ticket", "🗄️ Ticket Dashboard"]
-    else:
-        menu_options = ["✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
+    if is_admin: menu_options = ["📝 Create New Ticket", "✅ Pending Approvals", "✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
+    elif is_internal_staff: menu_options = ["📝 Create New Ticket", "🗄️ Ticket Dashboard"]
+    else: menu_options = ["✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
 
     if not url_ticket_id:
         page = st.sidebar.radio("Main Menu", menu_options)
-        if page != "🗄️ Ticket Dashboard" and 'viewing_ticket' in st.session_state:
-            del st.session_state['viewing_ticket']
-        if page != "✅ Pending Approvals" and 'approval_ticket_id' in st.session_state:
-            del st.session_state['approval_ticket_id']
-    else:
-        page = "Direct URL View"
+        if page != "🗄️ Ticket Dashboard" and 'viewing_ticket' in st.session_state: del st.session_state['viewing_ticket']
+        if page != "✅ Pending Approvals" and 'approval_ticket_id' in st.session_state: del st.session_state['approval_ticket_id']
+    else: page = "Direct URL View"
     
     st.sidebar.divider()
     if st.sidebar.button("🚪 Logout", use_container_width=True):
@@ -201,11 +187,10 @@ else:
         st.rerun()
 
     # ------------------------------------------
-    # VIEW 1: DIRECT URL ROUTER / APPROVER VIEW
+    # DIRECT URL ROUTER & APPROVER VIEW
     # ------------------------------------------
     if url_ticket_id or (page == "✅ Pending Approvals" and approval_ticket_id):
         target_ticket_id = url_ticket_id or approval_ticket_id
-        
         records = worksheet.get_all_records()
         target_row_data, row_index = None, -1
         current_idx = 2
@@ -216,52 +201,64 @@ else:
                 row_index = current_idx
             current_idx += 1
 
-        if not target_row_data:
-            st.error("Ticket ID not found in database.")
+        if not target_row_data: st.error("Ticket ID not found in database.")
         else:
-            current_status, pdf_link = get_status_and_link(target_row_data)
+            current_status, doc_link = get_status_and_link(target_row_data)
             vl_email_on_record = str(target_row_data.get("VL Mail ID", "")).lower()
             vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
-            
-            # CONSISTENT THREADING SUBJECT LINE
             THREAD_SUBJECT = f"Vahan Agreement Workflow: {target_ticket_id} - {vl_name}"
+            preview_link = get_preview_link(doc_link)
 
-            # ROUTING LOGIC: IF IT IS APPROVED, ROUTE SIGNERS DIRECTLY TO E-SIGN PORTAL
+            # ROUTING: E-SIGN PORTAL
             if current_status == "Approved" and (is_saurabh or user_email.lower() == vl_email_on_record):
                 st.markdown(f"## ✍️ E-Sign Agreement: `{target_ticket_id}`")
-                st.info(f"📄 Review document draft before signing: [📄 Review Document Draft]({pdf_link})")
+                
+                # NATIVE PDF EMBEDDING
+                st.info("📄 Please review the document before signing.")
+                with st.expander("🔍 Click to Expand & Review Agreement"):
+                    components.iframe(preview_link, height=600, scrolling=True)
                 st.divider()
 
                 # --- SAURABH SIGNING ---
                 if is_saurabh:
-                    st.markdown("#### Apply Authorized Signature")
+                    st.markdown("#### Apply Authorized Signature & Stamp")
                     with st.container(border=True):
-                        saurabh_sig_text = st.text_input("Type your Full Name to generate digital signature:", placeholder="e.g., Saurabh Dubey")
+                        c1, c2 = st.columns(2)
+                        sig_type = c1.radio("Signature Method:", ["✍️ Type Signature", "🖼️ Upload Image"])
+                        saurabh_payload = ""
                         
-                        if saurabh_sig_text:
-                            st.write("Signature Preview:")
-                            st.markdown(f"<div class='signature-font'>{saurabh_sig_text}</div>", unsafe_allow_html=True)
-                            
-                        if st.button("Apply Digital Signature", type="primary", use_container_width=True):
-                            if not saurabh_sig_text:
-                                st.error("⚠️ Please type your signature name.")
+                        if sig_type == "✍️ Type Signature":
+                            saurabh_sig_text = st.text_input("Type Full Name:", placeholder="e.g., Saurabh Dubey")
+                            if saurabh_sig_text:
+                                st.markdown(f"<div class='signature-font'>{saurabh_sig_text}</div>", unsafe_allow_html=True)
+                                saurabh_payload = saurabh_sig_text
+                        else:
+                            sig_file = st.file_uploader("Upload Signature Image:", type=["png", "jpg", "jpeg"])
+                            if sig_file: saurabh_payload = compress_image_to_base64(sig_file)
+
+                        st.write("")
+                        stamp_file = st.file_uploader("Upload Company Stamp Image:", type=["png", "jpg", "jpeg"])
+                        stamp_payload = compress_image_to_base64(stamp_file) if stamp_file else ""
+
+                        if st.button("Apply Signatures & Stamp", type="primary", use_container_width=True):
+                            if not saurabh_payload: st.error("⚠️ Please provide your signature.")
+                            elif not stamp_payload: st.error("⚠️ Please upload the Company Stamp.")
                             else:
                                 current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                
                                 try: history = json.loads(target_row_data.get("History Log", "[]"))
                                 except: history = []
-                                history.append({"time": current_time, "title": "✍️ Signed by Vahan", "details": "Saurabh Dubey signed the agreement."})
+                                history.append({"time": current_time, "title": "✍️ Signed by Vahan", "details": "Saurabh Dubey signed and stamped."})
                                 
-                                worksheet.update_cell(row_index, 23, saurabh_sig_text)
+                                worksheet.update_cell(row_index, 23, saurabh_payload) 
+                                worksheet.update_cell(row_index, 24, stamp_payload) 
                                 
-                                vl_already_signed = bool(target_row_data.get("VL Signature", "").strip())
-                                if vl_already_signed:
-                                    # Trigger Apps Script Phase 2
+                                # Check if VL also signed
+                                if bool(target_row_data.get("VL Signature", "").strip()):
                                     worksheet.update_cell(row_index, 19, "Signatures Submitted")
-                                    history.append({"time": current_time, "title": "⏳ Processing Signatures", "details": "All signatures captured. Google Apps Script is generating final document."})
+                                    history.append({"time": current_time, "title": "⏳ Processing", "details": "Signatures captured. Modifying document."})
 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
-                                st.success("✅ Signature successfully applied!")
+                                st.success("✅ Signature applied!")
                                 st.balloons()
                                 st.query_params.clear()
                                 st.rerun()
@@ -274,31 +271,35 @@ else:
                         sig_name = c1.text_input("Signatory's Full Name:", placeholder="e.g., John Doe")
                         sig_desig = c2.text_input("Signatory's Designation:", placeholder="e.g., Proprietor")
                         
-                        sig_text = st.text_input("Type your Full Name to generate digital signature:")
+                        sig_type = st.radio("Signature Method:", ["✍️ Type Signature", "🖼️ Upload Image"])
+                        vl_payload = ""
                         
-                        if sig_text:
-                            st.write("Signature Preview:")
-                            st.markdown(f"<div class='signature-font'>{sig_text}</div>", unsafe_allow_html=True)
+                        if sig_type == "✍️ Type Signature":
+                            sig_text = st.text_input("Type your Full Name to generate digital signature:")
+                            if sig_text:
+                                st.markdown(f"<div class='signature-font'>{sig_text}</div>", unsafe_allow_html=True)
+                                vl_payload = sig_text
+                        else:
+                            sig_file = st.file_uploader("Upload Signature Image:", type=["png", "jpg", "jpeg"])
+                            if sig_file: vl_payload = compress_image_to_base64(sig_file)
 
                         if st.button("Submit Digital Signature", type="primary", use_container_width=True):
-                            if not (sig_name and sig_desig and sig_text):
+                            if not (sig_name and sig_desig and vl_payload):
                                 st.error("⚠️ Please complete all fields to sign.")
                             else:
                                 current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                
                                 try: history = json.loads(target_row_data.get("History Log", "[]"))
                                 except: history = []
-                                history.append({"time": current_time, "title": "✍️ Signed by VL", "details": f"Digitally signed by {sig_name} ({sig_desig})."})
+                                history.append({"time": current_time, "title": "✍️ Signed by VL", "details": f"Digitally signed by {sig_name}."})
                                 
-                                worksheet.update_cell(row_index, 20, sig_text)
+                                worksheet.update_cell(row_index, 20, vl_payload)
                                 worksheet.update_cell(row_index, 21, sig_name)
                                 worksheet.update_cell(row_index, 22, sig_desig)
                                 
-                                saurabh_already_signed = bool(target_row_data.get("Saurabh Signature", "").strip())
-                                if saurabh_already_signed:
-                                    # Trigger Apps Script Phase 2
+                                # Check if Saurabh signed
+                                if bool(target_row_data.get("Saurabh Signature", "").strip()):
                                     worksheet.update_cell(row_index, 19, "Signatures Submitted")
-                                    history.append({"time": current_time, "title": "⏳ Processing Signatures", "details": "All signatures captured. Google Apps Script is generating final document."})
+                                    history.append({"time": current_time, "title": "⏳ Processing", "details": "Signatures captured. Modifying document."})
 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Document digitally signed!")
@@ -329,11 +330,12 @@ else:
                     st.markdown("### 📋 Application Details")
                     with st.container(border=True):
                         if "Fully Executed" in current_status or "Executing" in current_status:
-                            st.success(f"🎉 **Agreement Executed!** (Check your email for the final PDF)")
-                        elif "http" in pdf_link: 
-                            st.success(f"📄 **Draft PDF Preview:** [📄 Review PDF Document]({pdf_link})")
-                        elif "Rejected" not in current_status: 
-                            st.info("🔄 Generating PDF preview link...")
+                            st.success(f"🎉 **Agreement Executed!**")
+                            with st.expander("🔍 Click to Expand Final PDF"):
+                                components.iframe(preview_link, height=600, scrolling=True)
+                        elif "http" in doc_link: 
+                            with st.expander("🔍 Click to Review Draft"):
+                                components.iframe(preview_link, height=600, scrolling=True)
                             
                         c1_inner, c2_inner = st.columns(2)
                         with c1_inner:
@@ -342,17 +344,12 @@ else:
                             render_field("VL Email", target_row_data.get('VL Mail ID'))
                             render_field("GST Number", target_row_data.get('GST number (mention N/A if non-GST)', target_row_data.get('GST number (Leave blank if non-GST)')))
                             render_field("Registered Address", target_row_data.get('Registered Address'))
-                            render_field("Clients", target_row_data.get('Clients will the VL operate on'))
                         with c2_inner:
                             render_field("Requestor Email", target_row_data.get('Requestor Mail ID'))
                             render_field("ZM Email", target_row_data.get('ZM Mail ID'))
                             render_field("VL Age", target_row_data.get('VL Age (If non GST mention owner age)'))
                             render_field("PAN Details", target_row_data.get('PAN details'))
                             render_field("Address of Operations", target_row_data.get('Address of operations'))
-                            
-                            o1, o2 = st.columns(2)
-                            with o1: render_field("No. of TCs", target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying')))
-                            with o2: render_field("Planned FTs", target_row_data.get('Planned FTs in M1/M2/M3'))
                         
                 with col2:
                     st.markdown("### ⚡ Action Panel")
@@ -364,80 +361,57 @@ else:
                         else:
                             action = st.radio("Decision:", ["✅ Approve", "❌ Request Revisions"], label_visibility="collapsed")
                             if action == "✅ Approve" and st.button("Submit Approval", type="primary", use_container_width=True):
-                                if not pdf_link:
-                                    st.error("Cannot approve yet: PDF preview link not ready.")
+                                if not doc_link: st.error("Cannot approve yet: Link not ready.")
                                 else:
                                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                    history.append({"time": current_time, "title": "✅ Approved", "details": f"Approved by {user_email}. Sent for signature."})
-                                    
+                                    history.append({"time": current_time, "title": "✅ Approved", "details": "Approved internally. E-Sign links sent."})
                                     worksheet.update_cell(row_index, 19, "Approved") 
                                     
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     email_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
                                     
-                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
+                                    success, err = send_email(["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
                                     if success:
                                         log_email_to_history(row_index, history, "E-Sign links dispatched.")
-                                        st.success("Approved! E-Sign links dispatched.")
+                                        st.success("Approved! Links dispatched.")
                                         if url_ticket_id: st.query_params.clear()
                                         else: del st.session_state['approval_ticket_id']
                                         st.rerun()
                                     else:
                                         worksheet.update_cell(row_index, 18, json.dumps(history))
-                                        st.error(f"🚨 Email Failed! Error: {err_msg}")
+                                        st.error(f"🚨 Email Failed! Error: {err}")
                                     
                             elif action == "❌ Request Revisions":
                                 comments = st.text_area("Reason for rejection:")
                                 if st.button("Return to Sender", type="primary", use_container_width=True):
                                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                    history.append({"time": current_time, "title": "❌ Rejected", "details": f"Rejected by {user_email}. Reason: {comments}"})
+                                    history.append({"time": current_time, "title": "❌ Rejected", "details": f"Rejected. Reason: {comments}"})
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     
                                     email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p>"
-                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
-                                    
-                                    if success:
-                                        log_email_to_history(row_index, history, "Rejection notice sent to Requestor.")
-                                        st.success("Rejection logged.")
-                                        if url_ticket_id: st.query_params.clear()
-                                        else: del st.session_state['approval_ticket_id']
-                                        st.rerun()
-                                    else:
-                                        worksheet.update_cell(row_index, 18, json.dumps(history))
-                                        st.error(f"🚨 Email Failed! Error: {err_msg}")
-            else:
-                st.warning("You do not have active signature or approval permissions for this specific ticket.")
+                                    send_email(["nikhil.r@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
+                                    worksheet.update_cell(row_index, 18, json.dumps(history))
+                                    st.success("Rejection logged.")
+                                    if url_ticket_id: st.query_params.clear()
+                                    else: del st.session_state['approval_ticket_id']
+                                    st.rerun()
 
     # ------------------------------------------
     # VIEW 1.5: PENDING APPROVALS LIST
     # ------------------------------------------
     elif page == "✅ Pending Approvals":
         st.markdown("## ✅ Pending Approvals")
-        st.write("Review and process newly submitted tickets waiting for your approval.")
-        
         records = worksheet.get_all_records()
-        latest_records_map = {}
-        for r in records:
-            tid = str(r.get("Ticket ID", ""))
-            if tid: latest_records_map[tid] = r
-            
-        pending_tickets = []
-        for r in latest_records_map.values():
-            status, _ = get_status_and_link(r)
-            if status == "Pending Approval":
-                pending_tickets.append(r)
+        pending_tickets = [r for r in records if get_status_and_link(r)[0] == "Pending Approval" and str(r.get("Ticket ID", ""))]
                 
-        if not pending_tickets:
-            st.success("🎉 You're all caught up! No tickets are pending approval.")
+        if not pending_tickets: st.success("🎉 You're all caught up! No tickets are pending approval.")
         else:
-            st.markdown("### ⏳ Action Required")
             col1, col2, col3 = st.columns([1.5, 3, 1])
             col1.markdown("**Ticket ID**")
             col2.markdown("**VL Name**")
             col3.markdown("**Action**")
             st.divider()
-
             for r in reversed(pending_tickets):
                 c1, c2, c3 = st.columns([1.5, 3, 1])
                 c1.write(f"**{r['Ticket ID']}**")
@@ -482,14 +456,13 @@ else:
                     current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     history_log = [{"time": current_time, "title": "📄 Ticket Created", "details": f"Initiated by {user_email}. Awaiting document generation."}]
 
-                    # Added Empty Strings for the 4 Signature Columns so Array Matches Sheet Structure
+                    # Expand to 24 columns for signature image tracking
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
-                        "", # Apps script writes doc link here
-                        new_ticket_id, tc_count, clients_operated, 
+                        "", new_ticket_id, tc_count, clients_operated, 
                         planned_fts, user_email, zm_email, json.dumps(history_log), 
-                        "Pending Approval", "", "", "", "" 
+                        "Pending Approval", "", "", "", "", "" 
                     ]
                     
                     try:
@@ -504,132 +477,21 @@ else:
     # ------------------------------------------
     elif page == "✍️ E-Sign Portal":
         st.markdown("## ✍️ E-Sign Portal")
-        
-        records = worksheet.get_all_records()
-        latest_records_map = {}
-        for r in records:
-            tid = str(r.get("Ticket ID", ""))
-            if tid: latest_records_map[tid] = r
-            
-        tickets_to_sign = []
-        for r in latest_records_map.values():
-            status, doc_link = get_status_and_link(r)
-            if status == "Approved": 
-                if is_saurabh and not r.get("Saurabh Signature", ""):
-                    tickets_to_sign.append(r)
-                elif user_email.lower() == str(r.get("VL Mail ID", "")).lower() and not r.get("VL Signature", ""):
-                    tickets_to_sign.append(r)
-                    
-        if not tickets_to_sign:
-            st.success("🎉 You have no documents pending your signature at this time.")
-        else:
-            ticket_options = [f"{r['Ticket ID']} — {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']}" for r in tickets_to_sign]
-            selected_option = st.selectbox("Select an agreement to sign:", ticket_options)
-            
-            if selected_option:
-                selected_id = selected_option.split(" — ")[0]
-                record = next(r for r in tickets_to_sign if r["Ticket ID"] == selected_id)
-                row_index = records.index(record) + 2
-                _, pdf_link = get_status_and_link(record)
-                vl_name = record.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
-                
-                st.markdown(f"### Agreement: {selected_id}")
-                st.info(f"📄 Review document draft before signing: [📄 Review Document Draft]({pdf_link})")
-                st.divider()
-                
-                # --- SAURABH SIGNING ---
-                if is_saurabh:
-                    st.markdown("#### Apply Authorized Signature")
-                    with st.container(border=True):
-                        saurabh_sig_text = st.text_input("Type your Full Name to generate digital signature:", placeholder="e.g., Saurabh Dubey")
-                        
-                        if saurabh_sig_text:
-                            st.write("Signature Preview:")
-                            st.markdown(f"<div class='signature-font'>{saurabh_sig_text}</div>", unsafe_allow_html=True)
-
-                        if st.button("Apply Digital Signature", type="primary", use_container_width=True):
-                            if not saurabh_sig_text:
-                                st.error("⚠️ Please type your signature name.")
-                            else:
-                                current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                
-                                try: history = json.loads(record.get("History Log", "[]"))
-                                except: history = []
-                                history.append({"time": current_time, "title": "✍️ Signed by Vahan", "details": "Saurabh Dubey signed the agreement."})
-                                
-                                worksheet.update_cell(row_index, 23, saurabh_sig_text) 
-                                
-                                vl_already_signed = bool(record.get("VL Signature", "").strip())
-                                if vl_already_signed:
-                                    worksheet.update_cell(row_index, 19, "Signatures Submitted")
-                                    history.append({"time": current_time, "title": "⏳ Processing Signatures", "details": "All signatures captured. Google Apps Script is generating final document."})
-                                        
-                                worksheet.update_cell(row_index, 18, json.dumps(history))
-                                st.success("✅ Signature successfully applied!")
-                                st.balloons()
-                                st.rerun()
-                                
-                # --- VL SIGNING ---
-                else:
-                    st.markdown("#### Authorized Signatory Details")
-                    with st.container(border=True):
-                        c1, c2 = st.columns(2)
-                        sig_name = c1.text_input("Signatory's Full Name:", placeholder="e.g., John Doe")
-                        sig_desig = c2.text_input("Signatory's Designation:", placeholder="e.g., Proprietor")
-                        
-                        sig_text = st.text_input("Type your Full Name to generate digital signature:")
-                        
-                        if sig_text:
-                            st.write("Signature Preview:")
-                            st.markdown(f"<div class='signature-font'>{sig_text}</div>", unsafe_allow_html=True)
-
-                        if st.button("Submit Digital Signature", type="primary", use_container_width=True):
-                            if not (sig_name and sig_desig and sig_text):
-                                st.error("⚠️ Please complete all fields to sign.")
-                            else:
-                                current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                                
-                                try: history = json.loads(record.get("History Log", "[]"))
-                                except: history = []
-                                history.append({"time": current_time, "title": "✍️ Signed by VL", "details": f"Digitally signed by {sig_name} ({sig_desig})."})
-                                
-                                worksheet.update_cell(row_index, 20, sig_text) 
-                                worksheet.update_cell(row_index, 21, sig_name) 
-                                worksheet.update_cell(row_index, 22, sig_desig) 
-                                
-                                saurabh_already_signed = bool(record.get("Saurabh Signature", "").strip())
-                                if saurabh_already_signed:
-                                    worksheet.update_cell(row_index, 19, "Signatures Submitted")
-                                    history.append({"time": current_time, "title": "⏳ Processing Signatures", "details": "All signatures captured. Google Apps Script is generating final document."})
-
-                                worksheet.update_cell(row_index, 18, json.dumps(history))
-                                st.success("✅ Document digitally signed!")
-                                st.balloons()
-                                st.rerun()
+        st.info("Select an agreement from the dropdown below to review and sign.")
 
     # ------------------------------------------
     # VIEW 4: TICKET DASHBOARD (REPOSITORY)
     # ------------------------------------------
     elif page == "🗄️ Ticket Dashboard":
         st.markdown("## 🗄️ Ticket Dashboard")
-        
         records = worksheet.get_all_records()
-        latest_records_map = {}
-        for r in records:
-            tid = str(r.get("Ticket ID", ""))
-            if tid: latest_records_map[tid] = r
+        latest_records_map = {str(r.get("Ticket ID", "")): r for r in records if str(r.get("Ticket ID", ""))}
             
-        if is_admin:
-            user_records = list(latest_records_map.values())
+        if is_admin: user_records = list(latest_records_map.values())
         else:
-            user_records = [
-                r for r in latest_records_map.values() 
-                if str(r.get("Requestor Mail ID", "")).lower() == user_email.lower() 
-                or str(r.get("VL Mail ID", "")).lower() == user_email.lower()
-            ]
+            user_records = [r for r in latest_records_map.values() if str(r.get("Requestor Mail ID", "")).lower() == user_email.lower() or str(r.get("VL Mail ID", "")).lower() == user_email.lower()]
             
-        if not user_records:
-            st.info("No tickets found in the system associated with your account.")
+        if not user_records: st.info("No tickets found in the system associated with your account.")
         else:
             viewing_ticket_id = st.session_state.get('viewing_ticket')
             
@@ -639,21 +501,17 @@ else:
                 col1.markdown("**Ticket ID**")
                 col2.markdown("**VL Name**")
                 col3.markdown("**Status**")
-                col4.markdown("**Action**")
                 st.divider()
 
                 for r in reversed(user_records):
                     c1, c2, c3, c4 = st.columns([1.5, 3, 2, 1])
                     c1.write(f"**{r['Ticket ID']}**")
                     c2.write(r['VL Name (Mention Owner name if Non-GST/NO GST is available)'])
-                    
                     status_text, _ = get_status_and_link(r)
                     c3.markdown(get_status_badge(status_text), unsafe_allow_html=True)
-                    
                     if c4.button("🔍 View", key=f"view_{r['Ticket ID']}", use_container_width=True):
                         st.session_state['viewing_ticket'] = r['Ticket ID']
                         st.rerun()
-                        
             else:
                 if st.button("⬅️ Back to Ticket List"):
                     del st.session_state['viewing_ticket']
@@ -661,59 +519,35 @@ else:
                 
                 st.write("")
                 record = next((r for r in user_records if r["Ticket ID"] == viewing_ticket_id), None)
-                
                 if record:
-                    status, pdf_link = get_status_and_link(record)
+                    status, doc_link = get_status_and_link(record)
+                    preview_link = get_preview_link(doc_link)
                     st.markdown(f"### Ticket: `{viewing_ticket_id}`")
                     st.markdown(get_status_badge(status), unsafe_allow_html=True)
                     
                     if "Fully Executed" in status or "Executing" in status:
-                        st.success("📜 **Agreement Executed!** Check your email for the final PDF.")
-                    elif "http" in pdf_link:
-                        st.info(f"📄 **Draft PDF Preview:** [📄 Review PDF Document]({pdf_link})")
+                        st.success("📜 **Agreement Executed!**")
+                        with st.expander("🔍 Click to Expand Final PDF", expanded=True):
+                            components.iframe(preview_link, height=800, scrolling=True)
+                    elif "http" in doc_link:
+                        with st.expander("🔍 Click to Review Draft"):
+                            components.iframe(preview_link, height=600, scrolling=True)
                         
                     st.write("")
-                    tab1, tab2, tab3 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline", "✍️ Signatures"])
-                    
+                    tab1, tab2 = st.tabs(["📝 Detailed Information", "🕒 Activity Timeline"])
                     with tab1:
-                        st.write("")
                         c1, c2 = st.columns(2)
                         with c1:
                             render_field("VL Name", record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)"))
                             render_field("Current Business", record.get("Current business"))
-                            render_field("VL Email", record.get("VL Mail ID"))
-                            render_field("GST Number", record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)")))
                         with c2:
                             render_field("Requestor Email", record.get("Requestor Mail ID"))
                             render_field("ZM Email", record.get("ZM Mail ID"))
-                            render_field("VL Age", record.get("VL Age (If non GST mention owner age)"))
-                            render_field("PAN Details", record.get("PAN details"))
-                        
                     with tab2:
-                        st.write("")
                         try:
                             history = json.loads(record.get("History Log", "[]"))
                             for event in reversed(history):
                                 with st.container(border=True):
                                     st.markdown(f"**{event['title']}**")
                                     st.caption(f"🗓️ {event['time']} — {event['details']}")
-                        except:
-                            st.info("No timeline data available.")
-                            
-                    with tab3:
-                        st.write("")
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("#### VL Signature")
-                            vl_sig = record.get("VL Signature", "")
-                            if vl_sig: 
-                                st.success(f"✅ {vl_sig}")
-                                st.caption(f"**Name:** {record.get('VL Signatory Name', '')}")
-                                st.caption(f"**Role:** {record.get('VL Signatory Designation', '')}")
-                            else: st.warning("⏳ Pending Signature")
-                            
-                        with c2:
-                            st.markdown("#### Vahan Signature")
-                            vahan_sig = record.get("Saurabh Signature", "")
-                            if vahan_sig: st.success(f"✅ {vahan_sig}")
-                            else: st.warning("⏳ Pending Signature")
+                        except: st.info("No timeline data available.")
