@@ -5,6 +5,7 @@ from email.mime.text import MIMEText
 import datetime
 import uuid
 import requests
+import json
 from streamlit_oauth import OAuth2Component
 
 # ==========================================
@@ -38,7 +39,6 @@ def send_email(to_emails, subject, body):
     msg["Subject"] = subject
     msg["From"] = sender_email
     
-    # Clean up the email list (remove duplicates and empty strings)
     if isinstance(to_emails, list):
         to_emails = list(set([email.strip() for email in to_emails if email]))
         msg["To"] = ", ".join(to_emails)
@@ -53,10 +53,6 @@ def send_email(to_emails, subject, body):
     except Exception as e:
         return False
 
-def trigger_pdffiller_automation(doc_url, vl_name, vl_email):
-    st.info("System is triggering pdfFiller automation in the background...")
-    return True
-
 # ==========================================
 # OAUTH 2.0 LOGIN SYSTEM
 # ==========================================
@@ -65,8 +61,7 @@ client_secret = st.secrets["google_oauth"]["client_secret"]
 redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
 
 oauth2 = OAuth2Component(
-    client_id,
-    client_secret,
+    client_id, client_secret,
     "https://accounts.google.com/o/oauth2/auth",
     "https://oauth2.googleapis.com/token",
     "https://oauth2.googleapis.com/token",
@@ -78,12 +73,8 @@ if "user_email" not in st.session_state:
     st.write("Please sign in with your Vahan Google account to access the portal.")
     
     result = oauth2.authorize_button(
-        name="Sign in with Google",
-        icon="https://www.google.com/favicon.ico",
-        redirect_uri=redirect_uri,
-        scope="openid email profile",
-        key="google_login",
-        use_container_width=True
+        name="Sign in with Google", icon="https://www.google.com/favicon.ico",
+        redirect_uri=redirect_uri, scope="openid email profile", key="google_login", use_container_width=True
     )
     
     if result and "token" in result:
@@ -97,8 +88,7 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     is_admin = user_email.lower() in ADMIN_EMAILS
 
     st.sidebar.write(f"Logged in as: **{user_email}**")
@@ -122,13 +112,16 @@ else:
 
             records = worksheet.get_all_records()
             target_row_data = None
-            row_index = 2 
+            row_index = -1
             
+            # Loop through ALL records and keep the LAST one matching the Ticket ID
+            # This ensures we are always looking at the most recent resubmission
+            current_idx = 2
             for record in records:
                 if str(record.get("Ticket ID", "")) == str(ticket_id):
                     target_row_data = record
-                    break
-                row_index += 1
+                    row_index = current_idx
+                current_idx += 1
 
             if not target_row_data:
                 st.error("Ticket ID not found.")
@@ -139,9 +132,12 @@ else:
                 zm_email = target_row_data.get("ZM Mail ID", "")
                 current_status = target_row_data.get("Document Status", "Pending")
                 doc_link = target_row_data.get("Document Status", "") 
-
-                # Fallback handler in case you change the GSheet header to match the new text
                 gst_display_val = target_row_data.get("GST number (mention N/A if non-GST)", target_row_data.get("GST number (Leave blank if non-GST)", "N/A"))
+                
+                try:
+                    history = json.loads(target_row_data.get("History Log", "[]"))
+                except:
+                    history = []
 
                 col1, col2 = st.columns([1, 1])
                 
@@ -164,9 +160,9 @@ else:
                         st.write(f"**Current Business:** {target_row_data.get('Current business', 'N/A')}")
                         st.write(f"**VL Age:** {target_row_data.get('VL Age (If non GST mention owner age)', 'N/A')}")
                         st.divider()
-                        st.write(f"**No. of TCs VL is deploying:** {target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying', 'N/A'))}")
-                        st.write(f"**Clients VL will operate on:** {target_row_data.get('Clients will the VL operate on', 'N/A')}")
-                        st.write(f"**Planned FTs in M1/M2/M3:** {target_row_data.get('Planned FTs in M1/M2/M3', 'N/A')}")
+                        st.write(f"**No. of TCs Deploying:** {target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying', 'N/A'))}")
+                        st.write(f"**Clients:** {target_row_data.get('Clients will the VL operate on', 'N/A')}")
+                        st.write(f"**Planned FTs:** {target_row_data.get('Planned FTs in M1/M2/M3', 'N/A')}")
 
                 with col2:
                     st.subheader("Action Required")
@@ -174,19 +170,20 @@ else:
                          st.info("Waiting for Google Apps Script to finish generating the document...")
                     elif "Approved" in current_status:
                         st.success("This document has already been approved.")
+                    elif "Rejected" in current_status:
+                        st.error("This document was rejected and is awaiting resubmission from the user.")
                     else:
                         action = st.radio("Choose Action:", ["Approve", "Send Back to Requester"])
                         if action == "Approve":
                             if st.button("Confirm Approval", type="primary"):
+                                current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                history.append({"time": current_time, "title": "✅ Approved", "details": f"Approved by {user_email}. Sent for signature."})
+                                
                                 worksheet.update_cell(row_index, 11, "Approved - " + str(doc_link)) 
+                                worksheet.update_cell(row_index, 18, json.dumps(history))
                                 
-                                recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
-                                
-                                email_body = f"""
-                                <h3>Document Approved & Sent for Signature</h3>
-                                <p>The document for <b>{vl_name}</b> has been approved.</p>
-                                <p>It has been sent for signature via pdfFiller to Saurabh Dubey and {vl_name}.</p>
-                                """
+                                recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                email_body = f"<h3>Document Approved & Sent for Signature</h3><p>The document for <b>{vl_name}</b> has been approved.</p>"
                                 send_email(recipients, f"Agreement Sent for Signature - {vl_name}", email_body)
                                 st.success("Document approved and emails sent to all parties!")
                                 st.balloons()
@@ -194,13 +191,16 @@ else:
                         elif action == "Send Back to Requester":
                             comments = st.text_area("Rejection Comments / Notes:")
                             if st.button("Submit Rejection"):
-                                worksheet.update_cell(row_index, 11, "Rejected: " + comments) 
+                                current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                history.append({"time": current_time, "title": "❌ Rejected", "details": f"Rejected by {user_email}. Reason: {comments}"})
                                 
-                                recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
+                                worksheet.update_cell(row_index, 11, "Rejected") 
+                                worksheet.update_cell(row_index, 18, json.dumps(history))
                                 
-                                email_body = f"<h3>Document Requires Revision</h3><p>Comments: {comments}</p><p>Please review and resubmit.</p>"
+                                recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                email_body = f"<h3>Document Requires Revision</h3><p><b>Comments:</b> {comments}</p><p>Please log in to the portal to edit and resubmit your ticket.</p>"
                                 send_email(recipients, f"Action Required - {vl_name}", email_body)
-                                st.success("Rejection feedback logged and sent to all parties.")
+                                st.success("Rejection feedback logged.")
 
     # ------------------------------------------
     # VIEW 2 & 3: STANDARD PORTAL
@@ -233,31 +233,19 @@ else:
                 submitted = st.form_submit_button("Submit Request")
 
                 if submitted:
-                    # Require absolutely all fields to be populated
                     if not (vl_name and registered_address and gst_number and pan_details and ops_address and tc_count and clients_operated and planned_fts and current_business and vl_age and vl_email and zm_email):
                         st.error("Please complete all required fields (*).")
                     else:
                         new_ticket_id = "TK-" + str(uuid.uuid4()).split('-')[0].upper()
                         current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
+                        history_log = [{"time": current_time, "title": "📄 Ticket Submitted", "details": f"Initial request created by {user_email}."}]
+
                         new_row = [
-                            current_time,          # 1: Timestamp
-                            vl_name,               # 2: VL Name
-                            registered_address,    # 3: Registered Address
-                            gst_number,            # 4: GST number
-                            pan_details,           # 5: PAN details
-                            ops_address,           # 6: Address of operations
-                            tc_count,              # 7: TC Count
-                            current_business,      # 8: Current business
-                            vl_age,                # 9: VL Age
-                            vl_email,              # 10: VL Mail ID
-                            "Pending Approval",    # 11: Document Status
-                            new_ticket_id,         # 12: Ticket ID
-                            tc_count,              # 13: Number of TCs 
-                            clients_operated,      # 14: Clients
-                            planned_fts,           # 15: Planned FTs
-                            user_email,            # 16: Requestor Mail ID
-                            zm_email               # 17: ZM Mail ID
+                            current_time, vl_name, registered_address, gst_number, pan_details, 
+                            ops_address, tc_count, current_business, vl_age, vl_email, 
+                            "Pending Approval", new_ticket_id, tc_count, clients_operated, 
+                            planned_fts, user_email, zm_email, json.dumps(history_log)
                         ]
                         
                         try:
@@ -265,60 +253,120 @@ else:
                             app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
                             approval_link = f"{app_url}/?ticket_id={new_ticket_id}"
                             
-                            email_body = f"""
-                            <div style="font-family: Arial, sans-serif; color: #333;">
-                                <h3>New Agreement Approval Request</h3>
-                                <p>A new document request has been submitted by <b>{user_email}</b>. Please review the details below:</p>
-                                
-                                <table border="1" cellpadding="8" style="border-collapse: collapse; width: 100%; max-width: 600px; margin-bottom: 20px;">
-                                    <tr style="background-color: #f2f2f2;">
-                                        <th style="text-align: left; width: 40%;">Field</th>
-                                        <th style="text-align: left;">Details</th>
-                                    </tr>
-                                    <tr><td><b>Applicant Name</b></td><td>{vl_name}</td></tr>
-                                    <tr><td><b>VL Email Address</b></td><td>{vl_email}</td></tr>
-                                    <tr><td><b>Requestor Email</b></td><td>{user_email}</td></tr>
-                                    <tr><td><b>ZM Email</b></td><td>{zm_email}</td></tr>
-                                    <tr><td><b>GST Number</b></td><td>{gst_number}</td></tr>
-                                    <tr><td><b>PAN Details</b></td><td>{pan_details}</td></tr>
-                                    <tr><td><b>Registered Address</b></td><td>{registered_address}</td></tr>
-                                    <tr><td><b>Address of Operations</b></td><td>{ops_address}</td></tr>
-                                    <tr><td><b>Current Business</b></td><td>{current_business}</td></tr>
-                                    <tr><td><b>VL Age</b></td><td>{vl_age}</td></tr>
-                                    <tr><td><b>No. of TCs Deploying</b></td><td>{tc_count}</td></tr>
-                                    <tr><td><b>Clients Operated On</b></td><td>{clients_operated}</td></tr>
-                                    <tr><td><b>Planned FTs (M1/M2/M3)</b></td><td>{planned_fts}</td></tr>
-                                </table>
-                                
-                                <p><i>Admin Note: Click below to approve or reject this request.</i></p>
-                                <a href="{approval_link}" style="display: inline-block; padding: 12px 24px; background-color: #0056b3; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">Review and Approve Request</a>
-                            </div>
-                            """
-                            
-                            initial_recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email]
-                            send_email(initial_recipients, f"New Approval Needed: {vl_name}", email_body)
+                            email_body = f"<h3>New Agreement Request</h3><p>Applicant: <b>{vl_name}</b>.</p><p><a href='{approval_link}'>Review and Approve Request</a></p>"
+                            send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", zm_email], f"New Approval Needed: {vl_name}", email_body)
                             
                             st.success(f"Form submitted successfully! Your Ticket ID is {new_ticket_id}.")
                             st.balloons()
                         except Exception as err:
                             st.error(f"Error saving to Google Sheets: {err}")
 
+        # ------------------------------------------
+        # REVAMPED TICKET REPOSITORY
+        # ------------------------------------------
         elif page == "Ticket Repository":
             st.title("🗄️ Ticket Repository")
             records = worksheet.get_all_records()
             
+            # Deduplicate records by Ticket ID to only show the most recent submission of each ticket
+            latest_records_map = {}
+            for r in records:
+                tid = str(r.get("Ticket ID", ""))
+                if tid:
+                    latest_records_map[tid] = r
+            
             if is_admin:
-                st.success("Admin Dashboard Active. Showing all system tickets.")
-                st.dataframe(records)
+                user_records = list(latest_records_map.values())
             else:
                 user_records = [
-                    r for r in records 
-                    if str(r.get("Requestor Mail ID", "")).lower() == user_email.lower()
+                    r for r in latest_records_map.values() 
+                    if str(r.get("Requestor Mail ID", "")).lower() == user_email.lower() 
                     or str(r.get("VL Mail ID", "")).lower() == user_email.lower()
                 ]
                 
-                if len(user_records) == 0:
-                    st.warning("You have not submitted any tickets yet.")
-                else:
-                    st.success(f"Showing your tickets:")
-                    st.dataframe(user_records)
+            if len(user_records) == 0:
+                st.warning("No tickets found.")
+            else:
+                ticket_options = [f"{r['Ticket ID']} - {r['VL Name (Mention Owner name if Non-GST/NO GST is available)']} ({r['Document Status'][:15]}...)" for r in reversed(user_records)]
+                
+                selected_option = st.selectbox("Select a ticket to view details:", ticket_options)
+                
+                if selected_option:
+                    selected_id = selected_option.split(" - ")[0]
+                    record = next(r for r in user_records if r["Ticket ID"] == selected_id)
+                    
+                    status = str(record.get("Document Status", ""))
+                    is_rejected = "Rejected" in status
+                    
+                    tab1, tab2, tab3 = st.tabs(["📝 Details", "🕒 Timeline & History", "⚠️ Edit & Resubmit" if is_rejected else "🔒 Modifications Locked"])
+                    
+                    with tab1:
+                        st.subheader("Ticket Details")
+                        for key, value in record.items():
+                            if key not in ["History Log", "Document Status"]: 
+                                st.write(f"**{key}:** {value}")
+                        st.write(f"**Current Status:** {status}")
+                        
+                    with tab2:
+                        st.subheader("Audit Log & Timeline")
+                        try:
+                            history = json.loads(record.get("History Log", "[]"))
+                            for event in reversed(history):
+                                st.markdown(f"**{event['time']}** — {event['title']}")
+                                st.caption(event['details'])
+                                st.divider()
+                        except:
+                            st.info("No timeline data available for this ticket.")
+
+                    with tab3:
+                        if is_rejected and not is_admin:
+                            st.warning("This ticket requires revisions. Please update the fields below and resubmit.")
+                            st.info("Submitting these updates will retain your old rejected record for historical logging and create a fresh submission automatically.")
+                            
+                            with st.form("resubmit_form"):
+                                res_name = st.text_input("VL Name *", value=record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", ""))
+                                res_reg = st.text_area("Registered Address *", value=record.get("Registered Address", ""))
+                                res_gst = st.text_input("GST number *", value=record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)", "")))
+                                res_pan = st.text_input("PAN details *", value=record.get("PAN details", ""))
+                                res_ops = st.text_area("Address of operations *", value=record.get("Address of operations", ""))
+                                res_tc = st.text_input("Number of TCs *", value=record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying", "")))
+                                res_cli = st.text_input("Clients *", value=record.get("Clients will the VL operate on", ""))
+                                res_ft = st.text_input("Planned FTs *", value=record.get("Planned FTs in M1/M2/M3", ""))
+                                res_biz = st.text_input("Current business *", value=record.get("Current business", ""))
+                                res_age = st.text_input("VL Age *", value=record.get("VL Age (If non GST mention owner age)", ""))
+                                res_vl_mail = st.text_input("VL Mail ID *", value=record.get("VL Mail ID", ""))
+                                res_zm_mail = st.text_input("ZM Mail ID *", value=record.get("ZM Mail ID", ""))
+                                
+                                if st.form_submit_button("Update and Resubmit Ticket"):
+                                    current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                    
+                                    try:
+                                        history_log = json.loads(record.get("History Log", "[]"))
+                                    except:
+                                        history_log = []
+                                        
+                                    history_log.append({"time": current_time, "title": "🔄 Resubmitted", "details": f"Ticket fields updated and resubmitted by {user_email}."})
+                                    
+                                    # Create a brand new row instead of overwriting the old one!
+                                    new_row = [
+                                        current_time, res_name, res_reg, res_gst, res_pan, 
+                                        res_ops, res_tc, res_biz, res_age, res_vl_mail, 
+                                        "Pending Approval", selected_id, res_tc, res_cli, 
+                                        res_ft, record.get("Requestor Mail ID", user_email), 
+                                        res_zm_mail, json.dumps(history_log)
+                                    ]
+                                    
+                                    worksheet.append_row(new_row)
+                                    
+                                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
+                                    approval_link = f"{app_url}/?ticket_id={selected_id}"
+                                    email_body = f"<h3>Agreement Resubmitted</h3><p>The ticket for <b>{res_name}</b> has been corrected and resubmitted.</p><p><a href='{approval_link}'>Review the updated Request</a></p>"
+                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted Approval Needed: {res_name}", email_body)
+                                    
+                                    st.success("Ticket successfully resubmitted! A new record has been created.")
+                                    st.rerun()
+                                    
+                        elif is_admin:
+                            st.info("You are in Admin mode. Admins cannot edit tickets—only the original requestor can resubmit a rejected ticket.")
+                        else:
+                            st.info("This ticket is locked because it is currently Pending Approval or already Approved.")
