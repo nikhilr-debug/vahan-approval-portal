@@ -115,7 +115,6 @@ else:
             row_index = -1
             
             # Loop through ALL records and keep the LAST one matching the Ticket ID
-            # This ensures we are always looking at the most recent resubmission
             current_idx = 2
             for record in records:
                 if str(record.get("Ticket ID", "")) == str(ticket_id):
@@ -298,6 +297,10 @@ else:
                     status = str(record.get("Document Status", ""))
                     is_rejected = "Rejected" in status
                     
+                    # Determine if the current user is the owner of this specific ticket
+                    is_owner = (str(record.get("Requestor Mail ID", "")).lower() == user_email.lower()) or \
+                               (str(record.get("VL Mail ID", "")).lower() == user_email.lower())
+                    
                     tab1, tab2, tab3 = st.tabs(["📝 Details", "🕒 Timeline & History", "⚠️ Edit & Resubmit" if is_rejected else "🔒 Modifications Locked"])
                     
                     with tab1:
@@ -319,54 +322,53 @@ else:
                             st.info("No timeline data available for this ticket.")
 
                     with tab3:
-                        if is_rejected and not is_admin:
-                            st.warning("This ticket requires revisions. Please update the fields below and resubmit.")
-                            st.info("Submitting these updates will retain your old rejected record for historical logging and create a fresh submission automatically.")
-                            
-                            with st.form("resubmit_form"):
-                                res_name = st.text_input("VL Name *", value=record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", ""))
-                                res_reg = st.text_area("Registered Address *", value=record.get("Registered Address", ""))
-                                res_gst = st.text_input("GST number *", value=record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)", "")))
-                                res_pan = st.text_input("PAN details *", value=record.get("PAN details", ""))
-                                res_ops = st.text_area("Address of operations *", value=record.get("Address of operations", ""))
-                                res_tc = st.text_input("Number of TCs *", value=record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying", "")))
-                                res_cli = st.text_input("Clients *", value=record.get("Clients will the VL operate on", ""))
-                                res_ft = st.text_input("Planned FTs *", value=record.get("Planned FTs in M1/M2/M3", ""))
-                                res_biz = st.text_input("Current business *", value=record.get("Current business", ""))
-                                res_age = st.text_input("VL Age *", value=record.get("VL Age (If non GST mention owner age)", ""))
-                                res_vl_mail = st.text_input("VL Mail ID *", value=record.get("VL Mail ID", ""))
-                                res_zm_mail = st.text_input("ZM Mail ID *", value=record.get("ZM Mail ID", ""))
+                        if is_rejected:
+                            if is_owner:
+                                st.warning("This ticket requires revisions. Please update the fields below and resubmit.")
+                                st.info("Submitting these updates will retain your old rejected record for historical logging and create a fresh submission automatically.")
                                 
-                                if st.form_submit_button("Update and Resubmit Ticket"):
-                                    current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                                with st.form("resubmit_form"):
+                                    res_name = st.text_input("VL Name *", value=record.get("VL Name (Mention Owner name if Non-GST/NO GST is available)", ""))
+                                    res_reg = st.text_area("Registered Address *", value=record.get("Registered Address", ""))
+                                    res_gst = st.text_input("GST number *", value=record.get("GST number (mention N/A if non-GST)", record.get("GST number (Leave blank if non-GST)", "")))
+                                    res_pan = st.text_input("PAN details *", value=record.get("PAN details", ""))
+                                    res_ops = st.text_area("Address of operations *", value=record.get("Address of operations", ""))
+                                    res_tc = st.text_input("Number of TCs *", value=record.get("Number of TCs VL is deploying", record.get("No. Of TCs VL is deploying", "")))
+                                    res_cli = st.text_input("Clients *", value=record.get("Clients will the VL operate on", ""))
+                                    res_ft = st.text_input("Planned FTs *", value=record.get("Planned FTs in M1/M2/M3", ""))
+                                    res_biz = st.text_input("Current business *", value=record.get("Current business", ""))
+                                    res_age = st.text_input("VL Age *", value=record.get("VL Age (If non GST mention owner age)", ""))
+                                    res_vl_mail = st.text_input("VL Mail ID *", value=record.get("VL Mail ID", ""))
+                                    res_zm_mail = st.text_input("ZM Mail ID *", value=record.get("ZM Mail ID", ""))
                                     
-                                    try:
-                                        history_log = json.loads(record.get("History Log", "[]"))
-                                    except:
-                                        history_log = []
+                                    if st.form_submit_button("Update and Resubmit Ticket"):
+                                        current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                                         
-                                    history_log.append({"time": current_time, "title": "🔄 Resubmitted", "details": f"Ticket fields updated and resubmitted by {user_email}."})
-                                    
-                                    # Create a brand new row instead of overwriting the old one!
-                                    new_row = [
-                                        current_time, res_name, res_reg, res_gst, res_pan, 
-                                        res_ops, res_tc, res_biz, res_age, res_vl_mail, 
-                                        "Pending Approval", selected_id, res_tc, res_cli, 
-                                        res_ft, record.get("Requestor Mail ID", user_email), 
-                                        res_zm_mail, json.dumps(history_log)
-                                    ]
-                                    
-                                    worksheet.append_row(new_row)
-                                    
-                                    app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
-                                    approval_link = f"{app_url}/?ticket_id={selected_id}"
-                                    email_body = f"<h3>Agreement Resubmitted</h3><p>The ticket for <b>{res_name}</b> has been corrected and resubmitted.</p><p><a href='{approval_link}'>Review the updated Request</a></p>"
-                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted Approval Needed: {res_name}", email_body)
-                                    
-                                    st.success("Ticket successfully resubmitted! A new record has been created.")
-                                    st.rerun()
-                                    
-                        elif is_admin:
-                            st.info("You are in Admin mode. Admins cannot edit tickets—only the original requestor can resubmit a rejected ticket.")
+                                        try:
+                                            history_log = json.loads(record.get("History Log", "[]"))
+                                        except:
+                                            history_log = []
+                                            
+                                        history_log.append({"time": current_time, "title": "🔄 Resubmitted", "details": f"Ticket fields updated and resubmitted by {user_email}."})
+                                        
+                                        new_row = [
+                                            current_time, res_name, res_reg, res_gst, res_pan, 
+                                            res_ops, res_tc, res_biz, res_age, res_vl_mail, 
+                                            "Pending Approval", selected_id, res_tc, res_cli, 
+                                            res_ft, record.get("Requestor Mail ID", user_email), 
+                                            res_zm_mail, json.dumps(history_log)
+                                        ]
+                                        
+                                        worksheet.append_row(new_row)
+                                        
+                                        app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
+                                        approval_link = f"{app_url}/?ticket_id={selected_id}"
+                                        email_body = f"<h3>Agreement Resubmitted</h3><p>The ticket for <b>{res_name}</b> has been corrected and resubmitted.</p><p><a href='{approval_link}'>Review the updated Request</a></p>"
+                                        send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted Approval Needed: {res_name}", email_body)
+                                        
+                                        st.success("Ticket successfully resubmitted! A new record has been created.")
+                                        st.rerun()
+                            else:
+                                st.info("You are viewing someone else's ticket. Only the original requestor or VL can edit and resubmit this ticket.")
                         else:
                             st.info("This ticket is locked because it is currently Pending Approval or already Approved.")
