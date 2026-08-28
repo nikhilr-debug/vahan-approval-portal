@@ -74,7 +74,7 @@ def send_email(to_emails, subject, body):
             server.sendmail(sender_email, to_emails, msg.as_string())
         return True, "Success"
     except Exception as e:
-        return False, str(e)  # We will now print this exact error!
+        return False, str(e)
 
 def get_pdf_link(doc_link):
     if "/edit" in doc_link:
@@ -159,12 +159,24 @@ else:
     st.sidebar.divider()
     
     query_params = st.query_params
-    ticket_id = query_params.get("ticket_id")
+    url_ticket_id = query_params.get("ticket_id")
+    approval_ticket_id = st.session_state.get('approval_ticket_id')
     
-    if not ticket_id:
-        page = st.sidebar.radio("Main Menu", ["📝 Create New Ticket", "🗄️ Ticket Dashboard", "✍️ E-Sign Portal"])
+    # Custom Sidebar based on Role
+    if is_admin:
+        menu_options = ["📝 Create New Ticket", "✅ Pending Approvals", "🗄️ Ticket Dashboard", "✍️ E-Sign Portal"]
+    else:
+        menu_options = ["📝 Create New Ticket", "🗄️ Ticket Dashboard", "✍️ E-Sign Portal"]
+
+    if not url_ticket_id:
+        page = st.sidebar.radio("Main Menu", menu_options)
+        # Clear specific session states when navigating away
         if page != "🗄️ Ticket Dashboard" and 'viewing_ticket' in st.session_state:
             del st.session_state['viewing_ticket']
+        if page != "✅ Pending Approvals" and 'approval_ticket_id' in st.session_state:
+            del st.session_state['approval_ticket_id']
+    else:
+        page = "Approver View (URL)"
     
     st.sidebar.divider()
     if st.sidebar.button("🚪 Logout", use_container_width=True):
@@ -172,13 +184,25 @@ else:
         st.rerun()
 
     # ------------------------------------------
-    # VIEW 1: APPROVER VIEW (BANSH)
+    # VIEW 1: APPROVER VIEW (Triggered via URL or Pending Approvals Dashboard)
     # ------------------------------------------
-    if ticket_id:
+    if url_ticket_id or (page == "✅ Pending Approvals" and approval_ticket_id):
+        target_ticket_id = url_ticket_id or approval_ticket_id
+        
         if not is_admin:
             st.error("🔒 Access Denied: You do not have admin permissions to approve this document.")
         else:
-            st.markdown(f"## 🎫 Ticket Review: `{ticket_id}`")
+            # Show a back button depending on how they got here
+            if approval_ticket_id:
+                if st.button("⬅️ Back to Pending List"):
+                    del st.session_state['approval_ticket_id']
+                    st.rerun()
+            elif url_ticket_id:
+                if st.button("🏠 Go to Main Dashboard"):
+                    st.query_params.clear()
+                    st.rerun()
+                    
+            st.markdown(f"## 🎫 Ticket Review: `{target_ticket_id}`")
             st.divider()
 
             records = worksheet.get_all_records()
@@ -186,7 +210,7 @@ else:
             current_idx = 2
             
             for record in records:
-                if str(record.get("Ticket ID", "")) == str(ticket_id):
+                if str(record.get("Ticket ID", "")) == str(target_ticket_id):
                     target_row_data = record
                     row_index = current_idx
                 current_idx += 1
@@ -211,13 +235,24 @@ else:
                         elif "Rejected" not in current_status: 
                             st.info("🔄 Generating document link...")
                             
-                        c1, c2 = st.columns(2)
-                        with c1:
+                        c1_inner, c2_inner = st.columns(2)
+                        with c1_inner:
                             render_field("Applicant Name", target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)'))
-                            render_field("Requestor Email", target_row_data.get('Requestor Mail ID'))
-                        with c2:
+                            render_field("Current Business", target_row_data.get("Current business"))
                             render_field("VL Email", target_row_data.get('VL Mail ID'))
+                            render_field("GST Number", target_row_data.get('GST number (mention N/A if non-GST)', target_row_data.get('GST number (Leave blank if non-GST)')))
+                            render_field("Registered Address", target_row_data.get('Registered Address'))
+                            render_field("Clients", target_row_data.get('Clients will the VL operate on'))
+                        with c2_inner:
+                            render_field("Requestor Email", target_row_data.get('Requestor Mail ID'))
                             render_field("ZM Email", target_row_data.get('ZM Mail ID'))
+                            render_field("VL Age", target_row_data.get('VL Age (If non GST mention owner age)'))
+                            render_field("PAN Details", target_row_data.get('PAN details'))
+                            render_field("Address of Operations", target_row_data.get('Address of operations'))
+                            
+                            o1, o2 = st.columns(2)
+                            with o1: render_field("No. of TCs", target_row_data.get('Number of TCs VL is deploying', target_row_data.get('No. Of TCs VL is deploying')))
+                            with o2: render_field("Planned FTs", target_row_data.get('Planned FTs in M1/M2/M3'))
                         
                 with col2:
                     st.markdown("### ⚡ Action Panel")
@@ -247,6 +282,8 @@ else:
                                     success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
                                     if success:
                                         st.success("Approved! Directed to E-Sign Portal.")
+                                        if url_ticket_id: st.query_params.clear()
+                                        else: del st.session_state['approval_ticket_id']
                                         st.rerun()
                                     else:
                                         st.error(f"🚨 Email Failed! Error: {err_msg}")
@@ -264,9 +301,48 @@ else:
                                     
                                     if success:
                                         st.success("Rejection logged.")
+                                        if url_ticket_id: st.query_params.clear()
+                                        else: del st.session_state['approval_ticket_id']
                                         st.rerun()
                                     else:
                                         st.error(f"🚨 Email Failed! Error: {err_msg}")
+
+    # ------------------------------------------
+    # VIEW 1.5: PENDING APPROVALS LIST (ADMIN INBOX)
+    # ------------------------------------------
+    elif page == "✅ Pending Approvals":
+        st.markdown("## ✅ Pending Approvals")
+        st.write("Review and process newly submitted tickets waiting for your approval.")
+        
+        records = worksheet.get_all_records()
+        latest_records_map = {}
+        for r in records:
+            tid = str(r.get("Ticket ID", ""))
+            if tid: latest_records_map[tid] = r
+            
+        pending_tickets = []
+        for r in latest_records_map.values():
+            status, _ = get_status_and_link(r)
+            if status == "Pending Approval":
+                pending_tickets.append(r)
+                
+        if not pending_tickets:
+            st.success("🎉 You're all caught up! No tickets are pending approval.")
+        else:
+            st.markdown("### ⏳ Action Required")
+            col1, col2, col3 = st.columns([1.5, 3, 1])
+            col1.markdown("**Ticket ID**")
+            col2.markdown("**VL Name**")
+            col3.markdown("**Action**")
+            st.divider()
+
+            for r in reversed(pending_tickets):
+                c1, c2, c3 = st.columns([1.5, 3, 1])
+                c1.write(f"**{r['Ticket ID']}**")
+                c2.write(r['VL Name (Mention Owner name if Non-GST/NO GST is available)'])
+                if c3.button("🔍 Review", key=f"approve_btn_{r['Ticket ID']}", use_container_width=True):
+                    st.session_state['approval_ticket_id'] = r['Ticket ID']
+                    st.rerun()
 
     # ------------------------------------------
     # VIEW 2: SUBMIT NEW REQUEST
@@ -307,13 +383,13 @@ else:
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
-                        "Pending Approval", new_ticket_id, tc_count, clients_operated, 
+                        "", # Col 11: Deliberately left blank for Apps Script
+                        new_ticket_id, tc_count, clients_operated, 
                         planned_fts, user_email, zm_email, json.dumps(history_log), 
                         "Pending Approval", "", "" 
                     ]
                     
                     try:
-                        # USING INSERT_ROW AT INDEX 2 - Guaranteed NO overwriting!
                         worksheet.insert_row(new_row, index=2)
                         
                         app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
