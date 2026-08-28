@@ -166,10 +166,10 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
+    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
@@ -378,7 +378,7 @@ else:
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     email_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
                                     
-                                    success, err = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
+                                    success, err = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID")], THREAD_SUBJECT, email_body)
                                     if success:
                                         log_email_to_history(row_index, history, "E-Sign links dispatched.")
                                         st.success("Approved! Links dispatched.")
@@ -397,7 +397,7 @@ else:
                                     worksheet.update_cell(row_index, 19, "Rejected") 
                                     
                                     email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p>"
-                                    send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
+                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     st.success("Rejection logged.")
                                     if url_ticket_id: st.query_params.clear()
