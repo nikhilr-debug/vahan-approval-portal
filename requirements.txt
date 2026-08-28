@@ -3,5 +3,3 @@ gspread
 google-auth
 requests
 streamlit-oauth
-reportlab
-pypdf
