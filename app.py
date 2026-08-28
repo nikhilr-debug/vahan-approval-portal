@@ -98,7 +98,7 @@ if "user_email" not in st.session_state:
 else:
     user_email = st.session_state["user_email"]
     
-    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
     is_admin = user_email.lower() in ADMIN_EMAILS
 
     st.sidebar.write(f"Logged in as: **{user_email}**")
@@ -180,7 +180,7 @@ else:
                             if st.button("Confirm Approval", type="primary"):
                                 worksheet.update_cell(row_index, 11, "Approved - " + str(doc_link)) 
                                 
-                                recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
                                 
                                 email_body = f"""
                                 <h3>Document Approved & Sent for Signature</h3>
@@ -196,7 +196,7 @@ else:
                             if st.button("Submit Rejection"):
                                 worksheet.update_cell(row_index, 11, "Rejected: " + comments) 
                                 
-                                recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
                                 
                                 email_body = f"<h3>Document Requires Revision</h3><p>Comments: {comments}</p><p>Please review and resubmit.</p>"
                                 send_email(recipients, f"Action Required - {vl_name}", email_body)
@@ -295,7 +295,7 @@ else:
                             </div>
                             """
                             
-                            initial_recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", zm_email]
+                            initial_recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email]
                             send_email(initial_recipients, f"New Approval Needed: {vl_name}", email_body)
                             
                             st.success(f"Form submitted successfully! Your Ticket ID is {new_ticket_id}.")
