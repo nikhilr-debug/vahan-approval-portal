@@ -156,7 +156,7 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
     is_admin = user_email.lower() in ADMIN_EMAILS
 
     # ------------------------------------------
@@ -277,7 +277,7 @@ else:
                                     zm_email = target_row_data.get("ZM Mail ID", "")
                                     vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
                                     
-                                    recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                    recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
                                     send_email(recipients, f"Agreement Sent for Signature - {vl_name}", f"<h3>Document Approved</h3><p>The document for <b>{vl_name}</b> has been approved.</p>")
                                     st.success("Approval logged successfully!")
                                     st.rerun()
@@ -296,7 +296,7 @@ else:
                                     zm_email = target_row_data.get("ZM Mail ID", "")
                                     vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
                                     
-                                    recipients = ["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email, requestor_email, zm_email]
+                                    recipients = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email, requestor_email, zm_email]
                                     send_email(recipients, f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
                                     st.success("Rejection logged.")
                                     st.rerun()
@@ -359,7 +359,7 @@ else:
                     try:
                         worksheet.append_row(new_row)
                         app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
-                        send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{app_url}/?ticket_id={new_ticket_id}'>Review Request</a></p>")
+                        send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{app_url}/?ticket_id={new_ticket_id}'>Review Request</a></p>")
                         st.success(f"🎉 Ticket **{new_ticket_id}** created successfully!")
                         st.balloons()
                     except Exception as err:
@@ -533,7 +533,7 @@ else:
                                         
                                         worksheet.append_row(new_row)
                                         app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
-                                        send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", res_zm_mail], f"Resubmitted: {res_name}", f"<h3>Resubmitted Request: {viewing_ticket_id}</h3><p><a href='{app_url}/?ticket_id={viewing_ticket_id}'>Review Request</a></p>")
+                                        send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", res_zm_mail], f"Resubmitted: {res_name}", f"<h3>Resubmitted Request: {viewing_ticket_id}</h3><p><a href='{app_url}/?ticket_id={viewing_ticket_id}'>Review Request</a></p>")
                                         st.success("Ticket successfully resubmitted!")
                                         
                                         # Kick the user back to the master list so they can see it updated
