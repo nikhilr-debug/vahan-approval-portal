@@ -107,8 +107,8 @@ def create_stamped_pdf(pdf_bytes, vl_sig_text="", saurabh_sig_name="", stamp_byt
         writer = PdfWriter()
         num_pages = len(reader.pages)
         
-        vl_loc = None      # (page_index, x, y)
-        saurabh_loc = None # (page_index, x, y)
+        vl_loc = None
+        saurabh_loc = None
         
         for page_idx, page in enumerate(reader.pages):
             def visitor_text(text, cm, tm, font_dict, font_size):
@@ -123,7 +123,6 @@ def create_stamped_pdf(pdf_bytes, vl_sig_text="", saurabh_sig_name="", stamp_byt
                         
             page.extract_text(visitor_text=visitor_text)
 
-        # Fallback to last page bottom if placeholders aren't detected
         if not vl_loc:
             vl_loc = (num_pages - 1, 50, 95)
         if not saurabh_loc:
@@ -261,10 +260,10 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
+    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
@@ -286,10 +285,8 @@ else:
     if is_admin:
         menu_options = ["📝 Create New Ticket", "✅ Pending Approvals", "✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
     elif is_internal_staff:
-        # Requesters create and track tickets (E-Sign removed for non-signers)
         menu_options = ["📝 Create New Ticket", "🗄️ Ticket Dashboard"]
     else:
-        # External VLs ONLY see E-Sign Portal & Dashboard
         menu_options = ["✍️ E-Sign Portal", "🗄️ Ticket Dashboard"]
 
     if not url_ticket_id:
@@ -328,9 +325,8 @@ else:
             current_status, pdf_link = get_status_and_link(target_row_data)
             vl_email_on_record = str(target_row_data.get("VL Mail ID", "")).lower()
 
-            # ROUTING LOGIC BASED ON STATUS & USER ROLE
+            # ROUTING LOGIC: IF IT IS APPROVED, ROUTE SIGNERS DIRECTLY TO E-SIGN PORTAL
             if current_status == "Approved" and (is_saurabh or user_email.lower() == vl_email_on_record):
-                # Redirect directly to E-Sign View for this specific ticket!
                 st.markdown(f"## ✍️ E-Sign Agreement: `{target_ticket_id}`")
                 st.info(f"📄 Review document PDF before signing: [📄 Review PDF Document]({pdf_link})")
                 st.divider()
@@ -365,14 +361,15 @@ else:
                                     worksheet.update_cell(row_index, 19, "Fully Executed")
                                     history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties signed. PDF stamped."})
                                     
+                                    # STRICT CHECK: Verifies it is actually a PDF and not an Access Request HTML Page
                                     pdf_res = requests.get(pdf_link, allow_redirects=True)
-                                    if pdf_res.status_code == 200:
+                                    if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         stamp_bytes = stamp_file.getvalue()
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, target_row_data.get("VL Signature", ""), sig_name, stamp_bytes)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}</b> has been signed and stamped. Attached is the final PDF.</p>"
-                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
+                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
                                     else:
-                                        st.warning(f"Signature saved, but could not retrieve PDF (HTTP {pdf_res.status_code}). Ensure Google Doc sharing is set to 'Anyone with link can view'.")
+                                        st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view' for Python to stamp it.")
 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Signature & Stamp successfully applied!")
@@ -403,13 +400,14 @@ else:
                                     worksheet.update_cell(row_index, 19, "Fully Executed")
                                     history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties signed. PDF stamped."})
                                     
+                                    # STRICT CHECK for valid PDF return
                                     pdf_res = requests.get(pdf_link, allow_redirects=True)
-                                    if pdf_res.status_code == 200:
+                                    if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, sig_log, "Saurabh Dubey", None)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}</b> has been signed by all parties. Attached is the final PDF.</p>"
-                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
+                                        send_email([target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)')}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{target_ticket_id}.pdf")
                                     else:
-                                        st.warning(f"Signature saved, but could not retrieve PDF (HTTP {pdf_res.status_code}). Ensure Google Doc sharing is set to 'Anyone with link can view'.")
+                                        st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Document digitally signed!")
@@ -488,11 +486,10 @@ else:
                                     vl_email = target_row_data.get("VL Mail ID", "")
                                     
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
-                                    # EXACT URL WITH TICKET_ID PARAMETER FOR DIRECT REDIRECT
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     email_body = f"<h3>Document Approved & Ready for Signature</h3><p>The document for <b>{vl_name}</b> has been approved.</p><p><a href='{sign_link}'>Click here to Review and Sign Agreement ({target_ticket_id})</a></p>"
                                     
-                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
+                                    success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", vl_email], f"Signature Required - {vl_name}", email_body)
                                     if success:
                                         st.success("Approved! E-Sign links dispatched.")
                                         if url_ticket_id: st.query_params.clear()
@@ -510,7 +507,7 @@ else:
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
                                     
                                     vl_name = target_row_data.get('VL Name (Mention Owner name if Non-GST/NO GST is available)', 'N/A')
-                                    success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
+                                    success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], f"Action Required - {vl_name}", f"<h3>Revision Required</h3><p><b>Comments:</b> {comments}</p>")
                                     
                                     if success:
                                         st.success("Rejection logged.")
@@ -598,7 +595,7 @@ else:
                     new_row = [
                         current_time, vl_name, registered_address, gst_number, pan_details, 
                         ops_address, tc_count, current_business, vl_age, vl_email, 
-                        "", # Col 11: Apps script writes doc link here
+                        "", # Apps script writes doc link here
                         new_ticket_id, tc_count, clients_operated, 
                         planned_fts, user_email, zm_email, json.dumps(history_log), 
                         "Pending Approval", "", "" 
@@ -608,7 +605,7 @@ else:
                         worksheet.insert_row(new_row, index=2)
                         app_url = "https://vahan-agreement-approval-flow-app.streamlit.app" 
                         approval_link = f"{app_url}/?ticket_id={new_ticket_id}"
-                        success, err_msg = send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{approval_link}'>Review Request</a></p>")
+                        success, err_msg = send_email(["bansh@vahan.co", "saurabh.dubey@vahan.co", zm_email], f"New Approval: {vl_name}", f"<h3>New Request: {new_ticket_id}</h3><p><a href='{approval_link}'>Review Request</a></p>")
                         
                         if success:
                             st.success(f"🎉 Ticket **{new_ticket_id}** created successfully!")
@@ -619,7 +616,7 @@ else:
                         st.error(f"Database error: {err}")
 
     # ------------------------------------------
-    # VIEW 3: E-SIGN PORTAL
+    # VIEW 3: E-SIGN PORTAL (MANUAL NAVIGATION)
     # ------------------------------------------
     elif page == "✍️ E-Sign Portal":
         st.markdown("## ✍️ E-Sign Portal")
@@ -687,14 +684,14 @@ else:
                                     history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties signed. PDF stamped at placeholders."})
                                     
                                     pdf_res = requests.get(pdf_link, allow_redirects=True)
-                                    if pdf_res.status_code == 200:
+                                    if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         stamp_bytes = stamp_file.getvalue()
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, record.get("VL Signature", ""), sig_name, stamp_bytes)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed and stamped. Attached is the final executed PDF.</p>"
-                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
+                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
                                     else:
-                                        st.warning(f"Signature saved, but could not retrieve PDF (HTTP {pdf_res.status_code}). Ensure Google Doc sharing is set to 'Anyone with link can view'.")
-                                    
+                                        st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
+                                        
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Signature & Stamp successfully applied!")
                                 st.balloons()
@@ -724,12 +721,12 @@ else:
                                     history.append({"time": current_time, "title": "📜 Fully Executed", "details": "All parties signed. PDF stamped at placeholders."})
                                     
                                     pdf_res = requests.get(pdf_link, allow_redirects=True)
-                                    if pdf_res.status_code == 200:
+                                    if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                         final_pdf_bytes = create_stamped_pdf(pdf_res.content, sig_log, "Saurabh Dubey", None)
                                         email_body = f"<h3>Agreement Fully Executed</h3><p>The agreement for <b>{vl_name}</b> has been signed by all parties. Attached is the final executed PDF.</p>"
-                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "nikhil.r@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
+                                        send_email([record.get("VL Mail ID"), record.get("Requestor Mail ID"), "saurabh.dubey@vahan.co"], f"Fully Executed Agreement - {vl_name}", email_body, pdf_attachment_bytes=final_pdf_bytes, pdf_filename=f"Executed_{selected_id}.pdf")
                                     else:
-                                        st.warning(f"Signature saved, but could not retrieve PDF (HTTP {pdf_res.status_code}). Ensure Google Doc sharing is set to 'Anyone with link can view'.")
+                                        st.error(f"🚨 Signature saved, but could not download PDF. The Google Apps Script MUST set the document sharing to 'Anyone with the link can view'.")
 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 st.success("✅ Document digitally signed!")
@@ -751,7 +748,6 @@ else:
         if is_admin:
             user_records = list(latest_records_map.values())
         else:
-            # Filter strictly to requests where user is Requestor or VL
             user_records = [
                 r for r in latest_records_map.values() 
                 if str(r.get("Requestor Mail ID", "")).lower() == user_email.lower() 
@@ -801,7 +797,7 @@ else:
                         st.success("📜 **Agreement Fully Executed & Digitally Stamped**")
                         if "http" in pdf_link:
                             pdf_res = requests.get(pdf_link, allow_redirects=True)
-                            if pdf_res.status_code == 200:
+                            if pdf_res.status_code == 200 and 'application/pdf' in pdf_res.headers.get('Content-Type', ''):
                                 stamped_bytes = create_stamped_pdf(pdf_res.content, record.get("VL Signature", ""), "Saurabh Dubey", None)
                                 st.download_button(
                                     label="📥 Download Executed PDF with Signatures & Stamp",
