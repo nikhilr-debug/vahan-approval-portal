@@ -26,6 +26,8 @@ def apply_custom_css():
         .badge-approved { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .badge-rejected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .badge-executed { background-color: #cce5ff; color: #004085; border: 1px solid #b8daff; }
+        .field-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 2px; }
+        .field-value { font-size: 1.05rem; color: #111827; font-weight: 500; margin-bottom: 16px; word-wrap: break-word; }
         
         .signature-font {
             font-family: 'Brush Script MT', 'Caveat', 'Pacifico', cursive;
@@ -94,7 +96,8 @@ def log_email_to_history(row_index, current_history, details_text):
 
 def get_preview_link(doc_link):
     doc_link = str(doc_link).strip()
-    if "/edit" in doc_link: return doc_link.split("/edit")[0] + "/preview"
+    if "/edit" in doc_link:
+        return doc_link.split("/edit")[0] + "/preview"
     return doc_link
 
 def get_status_and_link(record):
@@ -124,11 +127,9 @@ def render_details_table(record):
     vl_age = record.get('VL Age (If non GST mention owner age)', '—')
     reg_address = record.get('Registered Address', '—')
     ops_address = record.get('Address of operations', '—')
-    
     tc_count = record.get('No. of TCs Deploying:', record.get('No. of TCs Deploying', record.get('Number of TCs VL is deploying', record.get('No. Of TCs VL is deploying', '—'))))
     clients = record.get('Clients Operated On:', record.get('Clients Operated On', record.get('Clients will the VL operate on', '—')))
     fts = record.get('Planned FTs (M1/M2/M3):', record.get('Planned FTs (M1/M2/M3)', record.get('Planned FTs in M1/M2/M3', '—')))
-    
     req_email = record.get('Requestor Mail ID', record.get('Requestor (Auto-filled):', '—'))
     zm_email = record.get("ZM's Mail ID:", record.get("ZM's Mail ID", record.get("ZM Mail ID", '—')))
     
@@ -153,6 +154,7 @@ def render_details_table(record):
 
 def render_pdf_iframe(url, height=600):
     st.markdown(f'<iframe src="{url}" width="100%" height="{height}px" style="border: none; border-radius: 8px;"></iframe>', unsafe_allow_html=True)
+
 
 # ==========================================
 # OAUTH 2.0 LOGIN SYSTEM
@@ -190,10 +192,10 @@ if "user_email" not in st.session_state:
 # ==========================================
 else:
     user_email = st.session_state["user_email"]
-    ADMIN_EMAILS = ["nikhil.r@vahan.co", "nikhil.r@vahan.co", "nikhil.r@vahan.co"]
+    ADMIN_EMAILS = ["bansh@vahan.co", "saurabh.dubey@vahan.co", "nikhil.r@vahan.co"]
     
     is_admin = user_email.lower() in ADMIN_EMAILS
-    is_saurabh = user_email.lower() == "nikhil.r@vahan.co"
+    is_saurabh = user_email.lower() == "saurabh.dubey@vahan.co"
     is_internal_staff = user_email.lower().endswith("@vahan.co") or is_admin
 
     st.sidebar.title("🎫 Vahan Portal")
@@ -376,6 +378,8 @@ else:
                             st.error("⚠️ Awaiting user resubmission.")
                         else:
                             action = st.radio("Decision:", ["✅ Approve", "❌ Request Revisions"], label_visibility="collapsed")
+                            
+                            # ---------------- APPROVED LOGIC ----------------
                             if action == "✅ Approve" and st.button("Submit Approval", type="primary", use_container_width=True):
                                 if not doc_link: st.error("Cannot approve yet: Link not ready.")
                                 else:
@@ -386,26 +390,19 @@ else:
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     sign_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     
-                                    # 1. Threaded Email to Internal Staff
-                                    internal_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
-                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, internal_body)
+                                    # Send to All EXCEPT VL
+                                    to_emails = [
+                                        "bansh@vahan.co", 
+                                        "saurabh.dubey@vahan.co", 
+                                        target_row_data.get("Requestor Mail ID"), 
+                                        target_row_data.get("ZM Mail ID")
+                                    ]
                                     
-                                    # 2. Custom Email specifically for the VL
-                                    vl_email = target_row_data.get("VL Mail ID")
-                                    vl_subject = "New signature request from Vahan Technologies"
-                                    vl_body = f"""
-                                    <div style='font-family: sans-serif; padding: 20px;'>
-                                        <p>Vahan Technologies is inviting you to review and sign an Agreement.</p>
-                                        <br>
-                                        <a href='{sign_link}' style='display: inline-block; padding: 12px 24px; background-color: #000080; color: white; text-decoration: none; font-weight: bold; border-radius: 4px;'>Review and Sign Agreement</a>
-                                        <br><br>
-                                        <p style='color: #666; font-size: 12px;'>This is an automated message from the Vahan E-Sign Portal.</p>
-                                    </div>
-                                    """
-                                    success, err = send_email([vl_email], vl_subject, vl_body)
+                                    internal_body = f"<p>The agreement has been approved internally.</p><p><a href='{sign_link}'>Click here to Review and E-Sign the Agreement</a></p>"
+                                    success, err = send_email(to_emails, THREAD_SUBJECT, internal_body)
                                     
                                     if success:
-                                        log_email_to_history(row_index, history, "E-Sign links dispatched to VL.")
+                                        log_email_to_history(row_index, history, "Approval notifications dispatched internally.")
                                         st.success("Approved! Links dispatched.")
                                         if url_ticket_id: st.query_params.clear()
                                         else: del st.session_state['approval_ticket_id']
@@ -413,7 +410,8 @@ else:
                                     else:
                                         worksheet.update_cell(row_index, 18, json.dumps(history))
                                         st.error(f"🚨 Email Failed! Error: {err}")
-                                    
+                            
+                            # ---------------- REJECTED LOGIC ----------------
                             elif action == "❌ Request Revisions":
                                 comments = st.text_area("Reason for rejection:")
                                 if st.button("Return to Sender", type="primary", use_container_width=True):
@@ -424,10 +422,17 @@ else:
                                     app_url = "https://vahan-agreement-approval-flow-app.streamlit.app"
                                     ticket_link = f"{app_url}/?ticket_id={target_ticket_id}"
                                     
-                                    # ADDED TICKET LINK TO REJECTION EMAIL
+                                    # Send ONLY to User, ZM, and Saurabh
+                                    to_emails = [
+                                        "saurabh.dubey@vahan.co", 
+                                        target_row_data.get("Requestor Mail ID"), 
+                                        target_row_data.get("ZM Mail ID")
+                                    ]
+                                    
                                     email_body = f"<p>The agreement has been returned for revisions.</p><p><b>Comments:</b> {comments}</p><br><p>👉 <b><a href='{ticket_link}'>Click here to Modify and Resubmit the Request</a></b></p>"
-                                    send_email(["nikhil.r@vahan.co", "nikhil.r@vahan.co", target_row_data.get("VL Mail ID"), target_row_data.get("Requestor Mail ID")], THREAD_SUBJECT, email_body)
+                                    send_email(to_emails, THREAD_SUBJECT, email_body)
                                     worksheet.update_cell(row_index, 18, json.dumps(history))
+                                    
                                     st.success("Rejection logged.")
                                     if url_ticket_id: st.query_params.clear()
                                     else: del st.session_state['approval_ticket_id']
@@ -614,7 +619,6 @@ else:
                                 except: history = []
                                 history.append({"time": current_time, "title": "🔄 Ticket Resubmitted", "details": f"Requestor updated details. Generating new document."})
                                 
-                                # Update Sheet Data
                                 worksheet.update_cell(row_index, 2, new_vl_name)
                                 worksheet.update_cell(row_index, 3, new_reg_addr)
                                 worksheet.update_cell(row_index, 4, new_gst)
@@ -629,8 +633,7 @@ else:
                                 worksheet.update_cell(row_index, 15, new_fts)
                                 worksheet.update_cell(row_index, 17, new_zm_email)
                                 
-                                # Set triggers for Apps Script regeneration
-                                worksheet.update_cell(row_index, 11, "") # Clear Doc Link to force new gen
+                                worksheet.update_cell(row_index, 11, "")
                                 worksheet.update_cell(row_index, 19, "Pending Approval") 
                                 worksheet.update_cell(row_index, 18, json.dumps(history))
                                 
